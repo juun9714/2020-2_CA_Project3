@@ -12,14 +12,21 @@ funct code로 control signal 만드는 함수 만들기?
 4. MEM/WB
 */
 typedef struct IF_ID {
+	char opcode[7];//opcode[6]은 null로 초기화
 	int rs;
 	int rt;
 	int rd;
+	char funct[7];//funct[6]은 null로 초기화
+	int imm;
+	int targ_addr;
 }IFID;
 typedef struct ID_EX {
-	int rs;
-	int rt;
-	int rd;
+	int rs_val;
+	int rt_val;
+	int rd_val;
+	int rs_id;
+	int rt_id;
+	int rd_id;
 }IDEX;
 
 typedef struct EX_MEM {
@@ -31,6 +38,10 @@ typedef struct MEM_WB {
 	int data_to_store;
 	int dst_reg;
 }MEMWB;
+
+IFID ifid; IDEX idex; EXMEM exmem; MEMWB memwb;
+int cycle = 0;
+int given_cycle = 100;
 
 void Bin(int deci, char* result) {
 	//int deci => char * result(binary string)
@@ -224,8 +235,6 @@ int bintoDeci(char* bin, int flag) {
 	//			sum += pow(2, 15 - i);
 	//	}
 	//}
-
-
 	return sum;
 }
 
@@ -242,7 +251,7 @@ int printMid(char* middle, int* Reg, int* DMem, char* last) {
 	//what is opcode
 	for (int op = 0; op < 6; op++)
 		forOp[op] = middle[op];
-
+	
 	//opcode = "000000" =>R-type : funct를 확인
 	//레지스터 값 확인: 다른 함수(Regi)로 뺐다.
 	//shamt 값 확인: 다른 함수(Shift)로 뺐다.
@@ -267,31 +276,6 @@ int printMid(char* middle, int* Reg, int* DMem, char* last) {
 			shamt[shi] = middle[shi + 21];
 		//shamt는 양의 정수 0~31
 		//shamt는 $안붙음 --> Shift 함수로 넣어서 출력하기
-
-		/*
-		struct IF_ID {
-			int rs;
-			int rt;
-			int rd;
-		};
-		struct ID_EX {
-			int rs;
-			int rt;
-			int rd;
-		};
-
-		struct EX_MEM {
-			int alu_res;
-			int dst_reg;
-		};
-
-		struct MEM_WB {
-			int data_to_store;
-			int dst_reg;
-		};
-		*/
-		
-		
 
 		if (!strncmp(forFunct, "100000", 6)) {
 			Reg[Regi(rd)] = Reg[Regi(rs)] + Reg[Regi(rt)];
@@ -452,6 +436,246 @@ int printMid(char* middle, int* Reg, int* DMem, char* last) {
 	}
 }
 
+void IF(char* middle) {
+	/*
+	32 bit string이 들어옴 by middle
+
+	IF 함수에서 할 일, pc+4 또는 target address 또는 jump address 주소에 있는 instruction 읽어서 
+	32bit IF/ID register에 쪼개서 저장
+	일단 지금 inst mem = last 배열, data memory = DMem, register file = Reg
+	
+	*/
+
+	//Common//
+	char forOp[6];
+	char rs[5], rt[5], rd[5], shamt[5], target[26];
+	int rsi, rti, rdi, shi, immi, tari;
+
+	//what is opcode
+	for (int op = 0; op < 6; op++)
+		forOp[op] = middle[op];
+
+	//opcode = "000000" =>R-type : funct를 확인
+	//레지스터 값 확인: 다른 함수(Regi)로 뺐다.
+	//shamt 값 확인: 다른 함수(Shift)로 뺐다.
+
+	char forFunct[6];//For R-type
+	char Imm[16]; //For I-type
+	if (!strncmp(forOp, "000000", 6))
+	{//R-type ->(add sub and or slt)
+	//opcode(6) rs(5) rt(5) rd(5) shamt(5) funct(6)
+		for (int func = 0; func < 6; func++)//funct 확인
+			forFunct[func] = middle[func + 26];
+
+		for (rsi = 0; rsi < 5; rsi++)//rs 확인
+			rs[rsi] = middle[rsi + 6];
+
+		for (rti = 0; rti < 5; rti++)//rt 확인
+			rt[rti] = middle[rti + 11];
+
+		for (rdi = 0; rdi < 5; rdi++)//rd 확인
+			rd[rdi] = middle[rdi + 16];
+
+		for (shi = 0; shi < 5; shi++)//shamt
+			shamt[shi] = middle[shi + 21];
+		//shamt는 양의 정수 0~31
+		//shamt는 $안붙음 --> Shift 함수로 넣어서 출력하기
+		strncpy(ifid.opcode, forOp, 6);
+		ifid.opcode[6] = '/0';
+		ifid.rd = Regi(rd);
+		ifid.rs = Regi(rs);
+		ifid.rt = Regi(rt);
+		strncpy(ifid.funct, forFunct, 6);
+		ifid.funct[6] = '/0';
+		//ifid.shamt 이 simulator에 shift 하는 명령어 없음
+		//IF/ID set
+
+
+	}
+	else {
+
+		if (!strncmp(forOp, "000010", 6)) {
+			//For J and JAL
+			//opcode(6) target(26)
+			for (tari = 0; tari < 26; tari++) //immediate == 26bit
+				target[tari] = middle[tari + 6];
+
+			strncpy(ifid.opcode, forOp, 6);
+			ifid.opcode[6] = '/0';
+			ifid.targ_addr = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
+		}
+		else {
+			//For I-type (addi andi ori slti) (+ lw, sw, beq, bne, lui)
+			//opcode(6) rs(5) rt(5) imm(16)
+			for (rsi = 0; rsi < 5; rsi++)//rs 확인
+				rs[rsi] = middle[rsi + 6];
+
+			for (rti = 0; rti < 5; rti++)//rt 확인
+				rt[rti] = middle[rti + 11];
+
+			for (immi = 0; immi < 16; immi++)//immediate 확인
+				Imm[immi] = middle[immi + 16];
+
+			strncpy(ifid.opcode, forOp, 6);
+			ifid.opcode[6] = '/0';
+			ifid.rs = Regi(rs);
+			ifid.rt = Regi(rt);
+			ifid.imm = bintoDeci(Imm, 1);
+		}
+	}
+}
+int ID(char* middle, int* Reg, int* DMem, char* last) {
+	/*
+	IF/ID register에서 
+	1. opcode로 control signal 만들어서 ID/EX register에 넣기 
+	2. 각 register index로 register 값(32bit) 읽어오기 
+	3. rt, rd index 둘 다 ID/EX register에 저장하기 (ex에서 dst mux)
+	4. beq, bne의 경우 same인지 판별하기
+	5. target address 계산하기(beq, bne)
+	
+	*/
+	
+	if (!strncmp(forOp, "000000", 6))
+	{//R-type ->  op rs rt rd shamt funct
+		if (!strncmp(forFunct, "100000", 6)) {
+			Reg[Regi(rd)] = Reg[Regi(rs)] + Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+			//add
+		}
+		else if (!strncmp(forFunct, "100100", 6)) {
+			Reg[Regi(rd)] = Reg[Regi(rs)] & Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+			//and
+		}
+		else if (!strncmp(forFunct, "100101", 6)) {
+			Reg[Regi(rd)] = Reg[Regi(rs)] | Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+			//or
+		}
+		else if (!strncmp(forFunct, "101010", 6)) {
+			if (Reg[Regi(rs)] < Reg[Regi(rt)])
+				Reg[Regi(rd)] = 1;
+			else
+				Reg[Regi(rd)] = 0;
+			Reg[32] += 4;
+			return 1;
+			//slt
+		}
+		else if (!strncmp(forFunct, "100010", 6)) {
+			Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+			//sub
+		}
+		else if (!strncmp(forFunct, "000000", 6)) {
+			//printf("sll -> nop ");
+			if (!(strncmp(rd, "00000", 5)) && !strncmp(rs, "00000", 5) && !strncmp(rt, "00000", 5) && !strncmp(shamt, "00000", 5)) {
+				Reg[32] += 4;
+				return 1;
+			}
+			//sll -> nop
+		}
+		else {
+			printf("unknown instruction\n");
+			Reg[32] += 4;
+			return -1;
+		}
+	}
+	else {
+		//For I-type
+		
+		//For J and JAL
+
+		if (!strncmp(forOp, "001000", 6)) {
+			Reg[Regi(rt)] = Reg[Regi(rs)] + bintoDeci(Imm, 1);
+			Reg[32] += 4;
+			return 1;
+
+			//addi
+		}
+		else if (!strncmp(forOp, "001100", 6)) {
+			Reg[Regi(rt)] = Reg[Regi(rs)] & (0x0000FFFF & bintoDeci(Imm, 1));
+			Reg[32] += 4;
+			return 1;
+
+			//andi
+		}
+		else if (!strncmp(forOp, "000100", 6)) {
+			if (Reg[Regi(rs)] == Reg[Regi(rt)])
+				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
+			else
+				Reg[32] += 4;
+
+			return 1;
+
+			//beq, offset
+		}
+		else if (!strncmp(forOp, "000101", 6)) {
+			if (Reg[Regi(rs)] != Reg[Regi(rt)])
+				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
+			else
+				Reg[32] += 4;
+
+			return 1;
+
+			//bne
+		}
+		else if (!strncmp(forOp, "001111", 6)) {
+			Reg[Regi(rt)] = (bintoDeci(Imm, 1) << 16);
+			Reg[32] += 4;
+			return 1;
+
+			//lui
+		}
+		else if (!strncmp(forOp, "100011", 6)) {
+			
+			Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
+			Reg[32] += 4;
+			return 1;
+
+		}
+		else if (!strncmp(forOp, "001101", 6)) {
+			Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
+			Reg[32] += 4;
+			return 1;
+			//ori
+		}
+		else if (!strncmp(forOp, "101011", 6)) {
+			DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+
+			//sw
+		}
+		else if (!strncmp(forOp, "001010", 6)) {
+			if (Reg[Regi(rs)] < bintoDeci(Imm, 1))
+				Reg[Regi(rt)] = 1;
+			else
+				Reg[Regi(rt)] = 0;
+			Reg[32] += 4;
+			return 1;
+
+			//slti
+		}
+		else if (!strncmp(forOp, "000010", 6)) {
+			Reg[32] = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
+
+			return 1;
+
+			//j
+		}
+		else {
+			printf("unknown instruction\n");
+			Reg[32] += 4;
+			return -1;
+		}
+	}
+}
+
+
 
 int main(int argc, char* argv[]) {
 
@@ -581,6 +805,7 @@ int main(int argc, char* argv[]) {
 		//Reg[31] += 4;
 		//--> middle, last가 이진 코드 잘 읽고 있는 것 확인 
 		out++;//읽는 instruction 개수
+		IF(middle);
 		int check = printMid(middle, Reg, DMem, last); //한줄씩 각종 함수를 사용해서 출력, 명령어에 맞춰서 Reg[32]인 pc 증가시키기 
 		if (check == 1)
 			continue;
