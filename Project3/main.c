@@ -11,6 +11,19 @@ funct code로 control signal 만드는 함수 만들기?
 3. EX/MEM
 4. MEM/WB
 */
+typedef struct control_options {
+	char RegDst;
+	char MemtoReg;
+	char RegWrite;
+	char MemRead;
+	char MemWrite;
+	char Branch;
+	char PCWrite;
+	char IF_IDWrite;
+	char IF_Flush;
+	char ForwardA[2];
+	char ForwardB[2];
+}CO;
 typedef struct IF_ID {
 	char opcode[7];//opcode[6]은 null로 초기화
 	int rs;
@@ -21,12 +34,14 @@ typedef struct IF_ID {
 	int targ_addr;
 }IFID;
 typedef struct ID_EX {
+	char opcode[7];//opcode[6]은 null로 초기화
 	int rs_val;
 	int rt_val;
 	int rd_val;
 	int rs_id;
 	int rt_id;
 	int rd_id;
+	CO cont_op;
 }IDEX;
 
 typedef struct EX_MEM {
@@ -39,7 +54,10 @@ typedef struct MEM_WB {
 	int dst_reg;
 }MEMWB;
 
-IFID ifid; IDEX idex; EXMEM exmem; MEMWB memwb;
+IFID ifid; 
+IDEX idex; 
+EXMEM exmem; 
+MEMWB memwb;
 int cycle = 0;
 int given_cycle = 100;
 
@@ -524,7 +542,7 @@ void IF(char* middle) {
 		}
 	}
 }
-int ID(char* middle, int* Reg, int* DMem, char* last) {
+int ID(char* middle, int* Reg) {
 	/*
 	IF/ID register에서 
 	1. opcode로 control signal 만들어서 ID/EX register에 넣기 
@@ -534,28 +552,43 @@ int ID(char* middle, int* Reg, int* DMem, char* last) {
 	5. target address 계산하기(beq, bne)
 	
 	*/
-	
-	if (!strncmp(forOp, "000000", 6))
+	strncpy(idex.opcode, ifid.opcode, 6);
+
+
+	if (!strncmp(ifid.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
-		if (!strncmp(forFunct, "100000", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] + Reg[Regi(rt)];
+		idex.rd_id = ifid.rd;
+		idex.rs_id = ifid.rs;
+		idex.rt_id = ifid.rt;
+		idex.rd_val = Reg[ifid.rd];
+		idex.rs_val = Reg[ifid.rs];
+		idex.rt_val = Reg[ifid.rt];
+
+
+		if (!strncmp(ifid.funct, "100000", 6)) {
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.RegDst = 1;
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
 			Reg[32] += 4;
 			return 1;
 			//add
 		}
-		else if (!strncmp(forFunct, "100100", 6)) {
+		else if (!strncmp(ifid.funct, "100100", 6)) {
 			Reg[Regi(rd)] = Reg[Regi(rs)] & Reg[Regi(rt)];
 			Reg[32] += 4;
 			return 1;
 			//and
 		}
-		else if (!strncmp(forFunct, "100101", 6)) {
+		else if (!strncmp(ifid.funct, "100101", 6)) {
 			Reg[Regi(rd)] = Reg[Regi(rs)] | Reg[Regi(rt)];
 			Reg[32] += 4;
 			return 1;
 			//or
 		}
-		else if (!strncmp(forFunct, "101010", 6)) {
+		else if (!strncmp(ifid.funct, "101010", 6)) {
 			if (Reg[Regi(rs)] < Reg[Regi(rt)])
 				Reg[Regi(rd)] = 1;
 			else
@@ -564,13 +597,13 @@ int ID(char* middle, int* Reg, int* DMem, char* last) {
 			return 1;
 			//slt
 		}
-		else if (!strncmp(forFunct, "100010", 6)) {
+		else if (!strncmp(ifid.funct, "100010", 6)) {
 			Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
 			Reg[32] += 4;
 			return 1;
 			//sub
 		}
-		else if (!strncmp(forFunct, "000000", 6)) {
+		else if (!strncmp(ifid.funct, "000000", 6)) {
 			//printf("sll -> nop ");
 			if (!(strncmp(rd, "00000", 5)) && !strncmp(rs, "00000", 5) && !strncmp(rt, "00000", 5) && !strncmp(shamt, "00000", 5)) {
 				Reg[32] += 4;
@@ -589,21 +622,20 @@ int ID(char* middle, int* Reg, int* DMem, char* last) {
 		
 		//For J and JAL
 
-		if (!strncmp(forOp, "001000", 6)) {
+		if (!strncmp(ifid.opcode, "001000", 6)) {
 			Reg[Regi(rt)] = Reg[Regi(rs)] + bintoDeci(Imm, 1);
 			Reg[32] += 4;
 			return 1;
 
 			//addi
 		}
-		else if (!strncmp(forOp, "001100", 6)) {
+		else if (!strncmp(ifid.opcode, "001100", 6)) {
 			Reg[Regi(rt)] = Reg[Regi(rs)] & (0x0000FFFF & bintoDeci(Imm, 1));
 			Reg[32] += 4;
 			return 1;
-
 			//andi
 		}
-		else if (!strncmp(forOp, "000100", 6)) {
+		else if (!strncmp(ifid.opcode, "000100", 6)) {
 			if (Reg[Regi(rs)] == Reg[Regi(rt)])
 				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
 			else
@@ -613,7 +645,7 @@ int ID(char* middle, int* Reg, int* DMem, char* last) {
 
 			//beq, offset
 		}
-		else if (!strncmp(forOp, "000101", 6)) {
+		else if (!strncmp(ifid.opcode, "000101", 6)) {
 			if (Reg[Regi(rs)] != Reg[Regi(rt)])
 				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
 			else
@@ -623,34 +655,34 @@ int ID(char* middle, int* Reg, int* DMem, char* last) {
 
 			//bne
 		}
-		else if (!strncmp(forOp, "001111", 6)) {
+		else if (!strncmp(ifid.opcode, "001111", 6)) {
 			Reg[Regi(rt)] = (bintoDeci(Imm, 1) << 16);
 			Reg[32] += 4;
 			return 1;
 
 			//lui
 		}
-		else if (!strncmp(forOp, "100011", 6)) {
+		else if (!strncmp(ifid.opcodep, "100011", 6)) {
 			
 			Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
 			Reg[32] += 4;
 			return 1;
 
 		}
-		else if (!strncmp(forOp, "001101", 6)) {
+		else if (!strncmp(ifid.opcode, "001101", 6)) {
 			Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
 			Reg[32] += 4;
 			return 1;
 			//ori
 		}
-		else if (!strncmp(forOp, "101011", 6)) {
+		else if (!strncmp(ifid.opcode, "101011", 6)) {
 			DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
 			Reg[32] += 4;
 			return 1;
 
 			//sw
 		}
-		else if (!strncmp(forOp, "001010", 6)) {
+		else if (!strncmp(ifid.opcode, "001010", 6)) {
 			if (Reg[Regi(rs)] < bintoDeci(Imm, 1))
 				Reg[Regi(rt)] = 1;
 			else
@@ -660,17 +692,15 @@ int ID(char* middle, int* Reg, int* DMem, char* last) {
 
 			//slti
 		}
-		else if (!strncmp(forOp, "000010", 6)) {
+		else if (!strncmp(ifid.opcode, "000010", 6)) {
 			Reg[32] = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
-
 			return 1;
-
 			//j
 		}
 		else {
 			printf("unknown instruction\n");
 			Reg[32] += 4;
-			return -1;
+			return 1;
 		}
 	}
 }
