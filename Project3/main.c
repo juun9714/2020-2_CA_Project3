@@ -235,7 +235,7 @@ int printMid(char* middle, int* Reg, int* DMem, char* last) {
 	//일단 지금 inst mem = last 배열, data memory = DMem, register file = Reg
 
 	//middle : 32bit string
-	//Common
+	//Common//
 	char forOp[6];
 	char rs[5], rt[5], rd[5], shamt[5], target[26];
 	int rsi, rti, rdi, shi, immi, tari;
