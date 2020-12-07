@@ -176,7 +176,7 @@ int cycle = 0;
 int given_cycle = 100;
 char PCWrite=1;
 char IF_IDWrite=1;
-int pc_change = 0;
+int morecycle = 0;
 
 void Bin(int deci, char* result) {
 	//int deci => char * result(binary string)
@@ -640,7 +640,7 @@ void IF(char* middle,int * Reg) {
 			ifid.opcode[6] = '/0';
 			ifid.targ_addr = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
 			Reg[32] = ifid.targ_addr;
-			pc_change = 1;
+			PCWrite = 0;
 		}
 		else {
 			//For I-type (addi andi ori slti) (+ lw, sw, beq, bne, lui)
@@ -670,7 +670,15 @@ void ID(int* Reg) {
 	3. rt, rd index 둘 다 ID/EX register에 저장하기 (ex에서 dst mux)
 	4. beq, bne의 경우 same인지 판별하기
 	5. target address 계산하기(beq, bne)
-	
+	6. Bypassing
+	7. load-use data hazard (mem, id)
+		-idex.rt==ifid.rs
+		-idex.rt==ifid.rt
+		-idex.cont_op.memRead == 1
+
+		exmem.cont_op.regWrite==1
+		exmem.reg_dst_id != 0
+		이거 두 개는 bubble 이후 hazard 어차피 다시 발생하는데, 그때 또 점검하기 때문에 여기서 굳이 안해줘도 된다. 
 	*/
 	//7개 문자 그대로 카피하는 이유 -> IF 함수에서 이미 마지막 요소는 null로 초기화 했기 때문에, 그대로 옮기면 null도 들어올듯
 	strncpy(idex.opcode, ifid.opcode, 7);
@@ -690,16 +698,61 @@ void ID(int* Reg) {
 	char ForwardB; rt
 	*/
 
+	idex.rd = ifid.rd;
+	idex.rs = ifid.rs;
+	idex.rt = ifid.rt;
+	idex.rd_val = Reg[ifid.rd];
+	idex.rs_val = Reg[ifid.rs];
+	idex.rt_val = Reg[ifid.rt];
+	morecycle = 0;
+
+	//6. bypassing : wb에서 저장할 값을 ID stage에서 읽어서 다음 stage로 전달해줘야할 때
+	//load든, R-type instruction이든 
+	//일반적인 경우 이후에 if문이 들어가야 함 
+	if (memwb.dst_reg_id == ifid.rs && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
+		idex.rs_val = memwb.data;
+	}
+	else if (memwb.dst_reg_id == ifid.rt && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
+		idex.rt_val = memwb.data;
+	}
+
+	//7. load use data hazard
+	if ((idex.rt == ifid.rs || idex.rt == ifid.rt) && idex.cont_op.MemRead == 1) {
+		strncpy(idex.opcode, "000000\n", 7);
+		strncpy(idex.funct, "000000\n", 7);
+		strncpy(idex.shamt, "00000\n", 6);
+		idex.imm = 0;
+		idex.rd = 0;
+		idex.rt = 0;
+		idex.rs = 0;
+		idex.rd_val = 0;
+		idex.rs_val = 0;
+		idex.rt_val = 0;
+		//nop's control option
+		idex.cont_op.RegDst = 0;
+		idex.cont_op.MemtoReg = 0;
+		idex.cont_op.RegWrite = 0;
+		idex.cont_op.MemRead = 0;
+		idex.cont_op.MemWrite = 0;
+		idex.cont_op.Branch = 0;
+		idex.cont_op.IF_Flush = 0;
+		idex.cont_op.ForwardA = 0;
+		idex.cont_op.ForwardB = 0;
+		PCWrite = 0;
+		IF_IDWrite = 0;
+		/*
+		사실 IF/ID를 갱신하지 않는 방법 = instruction을 똑같은걸 넣으면 됨 = pc value를 똑같은 것을 넣어주면 됨
+		=> 사실상 PCWrite를 0으로 해주고, 이 instruction이 ID/EX register로 넘어가지만 않으면(nop이 넘어가면) 됨 
+		=> IF_IDWrite signal은 사실 무의미 함
+		다음 turn의 IF stage에서 똑같은 instruction을 읽어줄 것임
+		*/
+	
+	}
+
+
 	if (!strncmp(ifid.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		//id/ex register에 reg index, reg value 둘 다 넘기기
-		idex.rd = ifid.rd;
-		idex.rs = ifid.rs;
-		idex.rt = ifid.rt;
-		idex.rd_val = Reg[ifid.rd];
-		idex.rs_val = Reg[ifid.rs];
-		idex.rt_val = Reg[ifid.rt];
-
 		if (!strncmp(ifid.funct, "100000", 6)) {
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
@@ -712,8 +765,6 @@ void ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			
-			Reg[32] += 4;
 			//add
 		}
 		else if (!strncmp(ifid.funct, "100100", 6)) {
@@ -728,8 +779,6 @@ void ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-
-			Reg[32] += 4;
 			//and
 		}
 		else if (!strncmp(ifid.funct, "100101", 6)) {
@@ -744,8 +793,6 @@ void ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			
-			Reg[32] += 4;
 			//or
 		}
 		else if (!strncmp(ifid.funct, "101010", 6)) {
@@ -765,7 +812,6 @@ void ID(int* Reg) {
 				Reg[Regi(rd)] = 1;
 			else
 				Reg[Regi(rd)] = 0;*/
-			Reg[32] += 4;
 			//slt
 		}
 		else if (!strncmp(ifid.funct, "100010", 6)) {
@@ -782,7 +828,6 @@ void ID(int* Reg) {
 			IF_IDWrite = 1;
 
 			//Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
-			Reg[32] += 4;
 			//sub
 		}
 		else if (!strncmp(ifid.funct, "000000", 6)) {
@@ -799,7 +844,6 @@ void ID(int* Reg) {
 				idex.cont_op.ForwardB = 0;
 				PCWrite = 1;
 				IF_IDWrite = 1;
-				Reg[32] += 4;
 			}
 			//sll -> nop
 		}
@@ -817,7 +861,6 @@ void ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			Reg[32] += 4;
 		}
 	}
 	else {
@@ -825,20 +868,6 @@ void ID(int* Reg) {
 		idex.imm = ifid.imm;
 
 		//For J and JAL
-
-		/*
-		char opcode[7];//opcode[6]은 null로 초기화
-		char funct[7];//funct[6]은 null로 초기화
-		char shamt[6];
-		int rs_val;
-		int rt_val;
-		int rd_val;
-		int rs; 
-		int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
-		int rd;
-		int imm;
-		CO cont_op;
-		*/
 
 		if (!strncmp(ifid.opcode, "001000", 6)) {
 			idex.cont_op.RegDst = 0; //rt
@@ -881,7 +910,6 @@ void ID(int* Reg) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
@@ -894,7 +922,8 @@ void ID(int* Reg) {
 				IF(bubble, Reg);//ifid가 nop을 실행한 것처럼 만들기 = id ex mem wb에서 아무 일도 일어나지 않는다.
 				//초기화 한 후에, pc값 제대로 다시 하기 
 				Reg[32] = Reg[32] + 4 + (4 * ifid.imm);
-				pc_change = 1;
+				PCWrite = 0;
+				morecycle = 1;
 			}
 			//else
 				//Reg[32] += 4;
@@ -911,7 +940,6 @@ void ID(int* Reg) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
@@ -924,7 +952,8 @@ void ID(int* Reg) {
 				IF(bubble, Reg);//ifid가 nop을 실행한 것처럼 만들기 = id ex mem wb에서 아무 일도 일어나지 않는다.
 				//초기화 한 후에, pc값 제대로 다시 하기 
 				Reg[32] = Reg[32] + 4 + (4 * ifid.imm);
-				pc_change = 1;
+				PCWrite = 0;
+				morecycle = 1;
 			}
 			//else
 			//	Reg[32] += 4;
@@ -1042,21 +1071,21 @@ void ID(int* Reg) {
 }
 void EX(char* middle, int* Reg) {
 	/*
-	1. dst 결정하기 (regDST -> MUX)
-	2. forwarding 조건 만들기 (forwardA, forwardB <- EX/MEM.rd, MEM/WB.rd, EX/MEM.regWrite, MEM/WB.regWrite, regWrite -> MUX)
-	3. 계산 하기 
+	1. dst 결정하기 (regDST -> MUX) o
+	2. forwarding 조건 만들기 (forwardA, forwardB <- EX/MEM.rd, MEM/WB.rd, EX/MEM.regWrite, MEM/WB.regWrite, regWrite -> MUX) o
+	3. 계산 하기 o
 	3-0. 계산 안하는 명령 구분 (jump, nop, beq, bne -> branch 명령어는 ID 단계에서 계산한다. )
-	3-1. 계산 재료 muxing 하기 
-		- reg + reg (R type)
-		- reg + imm (I type, lw, sw)
+	3-1. 계산 재료 muxing 하기  -> 그냥 각 명령어 실행
+		- reg + reg (R type) o
+		- reg + imm (I type, lw, sw) o
 	4. ex/mem에 저장해야할 것들 생각하기 
-		- control options
-		- dst reg(register indexes yes, values?)
-		- 계산 결과 (메모리 주소값이든, 순수한 계산 결과든)
+		- control options o
+		- dst reg(register indexes yes, values?) o 
+		- 계산 결과 (메모리 주소값이든, 순수한 계산 결과든) o alu_res
 
 	5. Reg[32]는 누가 언제 해야하는가,,?
 		- pc value는 jump와 beq, bne에 의해 조작된다, 그 이외의 경우는 항상 pc+4
-			- WB까지 다 하고 나서 pc 값 변경해주기 
+			- WB까지 다 하고 나서 pc 값 변경해주기 --> common way by main 
 		- jump는 IF stage에서 다음 pc값이 결정 -> jump의 경우 IF stage에서 pc값 지정하기 
 		- beq bne는 ID stage에서 pc값이 결정 
 			-> 만약 not taken이라면, cycle은 정상적으로 1개씩 증가
@@ -1064,6 +1093,12 @@ void EX(char* middle, int* Reg) {
 			-> 만약 taken이라면, IF/ID stage를 nop으로 넣고, bubble 하나 들어가는거니까, 
 				- pc에는 target instruction's address 넣어주고
 			-> cycle 1 더 증가, 어디서 증가할지는 더 생각 (각 단계 내? or for문 안에서?)
+			-> 각 단계를 하다가도 cycle이 끝나면 중간에 그만둬야 함 -> 각 단계 내에서 cycle 증가 해야할 듯
+			-> generally cycle grows by 1
+			-> But cycle grows by 2 when bubble is inserted (when branch is taken, 
+
+	
+	6. Load - use hazard -> MEM stage
 
 
 		main의 형태
@@ -1077,37 +1112,6 @@ void EX(char* middle, int* Reg) {
 		if(pc_change==0)
 			pc=pc+4;
 	}
-
-	typedef struct ID_EX {
-	char opcode[7];//opcode[6]은 null로 초기화
-	char funct[7];//funct[6]은 null로 초기화
-	char shamt[6];
-	int rs_val;
-	int rt_val;
-	int rd_val;
-	int rs;
-	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
-	int rd;
-	int imm;
-	CO cont_op;
-	}IDEX;
-
-	typedef struct EX_MEM {
-	char opcode[7];//opcode[6]은 null로 초기화 (IF에서) 
-	char funct[7];//funct[6]은 null로 초기화
-	char shamt[6];
-	int alu_res;
-	int dst_reg_id;
-	int rs_val;
-	int rt_val;
-	int rd_val;
-	int rs;
-	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
-	int rd;
-	int imm;
-	CO cont_op;
-	}EXMEM;
-
 	*/
 
 
@@ -1126,14 +1130,47 @@ void EX(char* middle, int* Reg) {
 	exmem.rt_val = idex.rt_val;
 	//필요함 -> sw 명령어 : id에서 읽은 register 내의 값을 WB stage에서 활용해야함
 	/*
-	* R-type, I-type register index가 다르기 때문에 각 if문 안에서 처리할 것
+	* 
 	* 
 	1. EX HAZARD
 		-EX/MEM.dst_reg_id==ID/EX.rs
 		-EX/MEM.dst_reg_id==ID/EX.rt
+	2. MEM HAZARD -> load use data hazard의 mem hazard도 한번에 해결 가능 (bypassing은 ID stage에서 해결)
+		-MEM/WB.dst_reg_id==ID/EX.rs
+		-MEM/WB.dst_reg_id==ID/EX.rt
+		
+	3. load-use data hazard (mem, id)
+		-idex.rt==ifid.rs
+		-idex.rt==ifid.rt
+		-idex.cont_op.memRead
+	exmem.cont_op.regWrite==1
+	exmem.reg_dst_id != 0
+	이거 두 개는 bubble 이후 hazard 어차피 다시 발생하는데, 그때 또 점검하기 때문에 여기서 굳이 안해줘도 된다. 
+
 
 	*/
-	if()
+	if (exmem.cont_op.RegWrite == 1 && exmem.dst_reg_id != 0 && (exmem.dst_reg_id == idex.rs)){
+		//EX-Hzd of rs -> forwardA = 2
+		idex.cont_op.ForwardA = 2;
+		idex.rs_val = exmem.alu_res;
+	}
+	if (exmem.cont_op.RegWrite == 1 && exmem.dst_reg_id != 0 && (exmem.dst_reg_id == idex.rt)) {
+		//EX-Hzd of rt -> forwardB = 2
+		idex.cont_op.ForwardB = 2;
+		idex.rt_val = exmem.alu_res;
+	}
+	if (memwb.cont_op.RegWrite == 1 && memwb.dst_reg_id != 0 && (memwb.dst_reg_id == idex.rs)
+		&& !(exmem.cont_op.RegWrite == 1 && exmem.dst_reg_id != 0 && (exmem.dst_reg_id == idex.rs))) {
+		//MEM-Hzd of rs without EX-Hzd of rs -> forwardA = 1
+		idex.cont_op.ForwardA = 1;
+		idex.rs_val = memwb.data;
+	}
+	if (memwb.cont_op.RegWrite == 1 && memwb.dst_reg_id != 0 && (memwb.dst_reg_id == idex.rt)
+		&&!(exmem.cont_op.RegWrite == 1 && exmem.dst_reg_id != 0 && (exmem.dst_reg_id == idex.rt))) {
+		//MEM-Hzd of rt without EX-Hzd of rt -> forwardB = 1
+		idex.cont_op.ForwardB = 1;
+		idex.rt_val = memwb.data;
+	}
 
 
 
@@ -1204,9 +1241,6 @@ void EX(char* middle, int* Reg) {
 			//lui
 		}
 		else if (!strncmp(idex.opcode, "100011", 6)) {
-			/*printf("i am lw\n");
-			printf("%x\n", DMem[((Reg[Regi(rs)]+bintoDeci(Imm,1))-0x10000000)/4]);
-			printf("%x\n", bintoDeci(Imm, 1));*/
 			//Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
 			//DMem은 정수형 배열(4 byte 단위)이기 때문에 0x4의 주소값을 갖는 메모리의 데이터(1 byte 단위)를 얻고 싶다면, DMem[0x1]에 접근해야한다. 
 			exmem.alu_res = ((idex.rs_val + idex.imm) - 0x10000000) / 4;//접근하고자 하는 memory 주소/4
@@ -1244,6 +1278,92 @@ void EX(char* middle, int* Reg) {
 	exmem.cont_op = idex.cont_op;
 }
 
+int MEM(char* middle, int* Reg, int* DMem, char* last) {
+	/*
+	MEM에서 할 일
+	1. load, store 구현
+	2. alu_res 또는 read data MEM/WB로 넘겨주기
+		- load의 경우 data에 read data
+		- 나머지(regWrite==1)의 경우, alu_res 넘겨주기 
+	3. reg_dst_id MEM/WB로 넘겨주기 
+	
+	*/
+	strncpy(memwb.opcode, exmem.opcode, 7);
+	strncpy(memwb.funct, exmem.funct, 7);
+	strncpy(memwb.shamt, exmem.shamt, 6);
+
+	memwb.rd = exmem.rd;
+	memwb.rs = exmem.rs;
+	memwb.rt = exmem.rt;
+	memwb.imm = exmem.imm;
+	memwb.dst_reg_id = exmem.dst_reg_id;
+
+	memwb.rd_val = exmem.rd_val;
+	memwb.rs_val = exmem.rs_val;
+	memwb.rt_val = exmem.rt_val;
+
+	/*
+	* memory 쓰는 것만 .. load store .. 끝
+	* 
+	typedef struct EX_MEM {
+	char opcode[7];//opcode[6]은 null로 초기화
+	char funct[7];//funct[6]은 null로 초기화
+	char shamt[6];
+	int alu_res;
+	int dst_reg_id;
+	int rs_val;
+	int rt_val;
+	int rd_val;
+	int rs;
+	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
+	int rd;
+	int imm;
+	CO cont_op;
+	}EXMEM;
+
+	typedef struct MEM_WB {
+		char opcode[7];//opcode[6]은 null로 초기화ㅇ
+		char funct[7];//funct[6]은 null로 초기화ㅇ
+		char shamt[6];ㅇ
+		int data;//reg에 저장될 계산 결과든, mem에서 load해온 값이든 WB stage에서 muxing
+		-> 각 if 문 안에서 개별적으로 data에 저장
+		int dst_reg_id;ㅇ
+		int rs_val;ㅇ
+		int rt_val;ㅇ
+		int rd_val;ㅇ
+		int rs;ㅇ
+		int rt;ㅇ
+		int rd;ㅇ
+		int imm;ㅇ
+		CO cont_op;ㅇ
+	}MEMWB;
+	*/
+
+
+	//load, store의 경우, alu_res에 mem 주소가 들어있음 
+	if (!strncmp(exmem.opcode, "100011", 6)) {
+		memwb.data = DMem[exmem.alu_res];
+		/*
+		WB stage에서 Reg[memwb.reg_dst_id]=memwb.data; 해주면 됨 
+		mem에서도 reg에 저장하면 안됨,data로 옮겨놨다가, WB에서 register에 저장해야함
+		Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
+		DMem은 정수형 배열(4 byte 단위)이기 때문에 0x4의 주소값을 갖는 메모리의 데이터(1 byte 단위)를 얻고 싶다면,
+		DMem[0x1]에 접근해야한다. 
+		lw
+		lw $2, 1073741824($10)
+		*/
+	}
+	else if (!strncmp(exmem.opcode, "101011", 6)) {
+		DMem[exmem.alu_res] = exmem.rt_val;
+		//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
+		//sw
+	}
+	else {
+		//그 이외 : ex stage에서 계산한 결과를 WB stage에서 reg에 저장하는 경우 
+		memwb.data = exmem.alu_res;
+	}
+	memwb.cont_op = exmem.cont_op;
+}
 
 
 int main(int argc, char* argv[]) {
@@ -1360,22 +1480,38 @@ int main(int argc, char* argv[]) {
 	middle[32] = '\0';
 	int pc;//last의 시작점 
 	for (int out = 0; out < ins_number/*number은 input으로 받을 것임 횟수*/;) {
-		pc = Reg[32] * 8;
-		//만약 Reg[32]에 4가 저장되어있으면 두번째 명령어를 읽으라는 소리 = last[32]를 읽어야 함
+		pc = Reg[32] * 8; //만약 Reg[32]에 4가 저장되어있으면 두번째 명령어를 읽으라는 소리 = last[32]를 읽어야 함
 		for (int in = 0; in < 32; in++) { //32bit씩 읽어서 middle에 저장함. (middle = 명령어 한 줄)
-			//printf("out[%d] : %d\n", out,in);
 			middle[in] = last[pc]; //last는 bit단위로 전체 명령어가 저장되어 있고, pc register는 byte 단위로 저장되어 있음 
 			pc++;
 			//middle은 instruction 하나씩 저장되어 있음 
 			//in은 middle의 인덱스 
 			//만약 Reg[32]에 4가 저장되어있으면 두번째 명령어를 읽으라는 소리 = last[32]를 읽어야 함
 		}
-		//printf("middle[%d] : %s\n", out,middle);
-		//Reg[31] += 4;
-		//--> middle, last가 이진 코드 잘 읽고 있는 것 확인 
-		out++;//읽는 instruction 개수
+		out++;//cycle 수 
+
 		IF(middle, Reg);
 		ID(Reg);
+		EX(middle, Reg);
+
+		if (PCWrite == 1) {
+			//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
+			//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
+			//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
+			//Reg[32]를 증가하지 않는 경우 
+			/*
+			1. beq, bne, j -> PCWrite=0;
+			2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
+			*/
+			Reg[32] += 4;
+		}
+
+		if (morecycle == 1) {
+			out++;
+			//beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다. 
+			//load use data hazard의 경우, 똑같은 instruction을 IF stage가 한번 더 읽게된다. --> 자동으로 cycle 하나 더 증가
+		}
+
 		int check = printMid(middle, Reg, DMem, last); //한줄씩 각종 함수를 사용해서 출력, 명령어에 맞춰서 Reg[32]인 pc 증가시키기 
 		if (check == 1)
 			continue;
