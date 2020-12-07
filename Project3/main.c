@@ -132,6 +132,7 @@ typedef struct ID_EX {
 	int rs; 
 	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
 	int rd;
+	int imm;
 	CO cont_op;
 }IDEX;
 
@@ -605,8 +606,6 @@ void IF(char* middle,int * Reg) {
 
 		//ifid.shamt 이 simulator에 shift 하는 명령어 없음
 		//IF/ID set
-
-
 	}
 	else {
 
@@ -770,7 +769,337 @@ int ID(char* middle, int* Reg) {
 		}
 		else if (!strncmp(ifid.funct, "000000", 6)) {
 			//printf("sll -> nop ");
-			if ((ifid.rd==0) && (ifid.rs == 0) && (ifid.rt == 0) && !strncmp(shamt, "00000", 5)) {
+			if ((ifid.rd==0) && (ifid.rs == 0) && (ifid.rt == 0) && !strncmp(ifid.shamt, "00000", 5)) {
+				idex.cont_op.RegDst = 0;
+				idex.cont_op.MemtoReg = 0;
+				idex.cont_op.RegWrite = 0;
+				idex.cont_op.MemRead = 0;
+				idex.cont_op.MemWrite = 0;
+				idex.cont_op.Branch = 0;
+				idex.cont_op.IF_Flush = 0;
+				idex.cont_op.ForwardA = 0;
+				idex.cont_op.ForwardB = 0;
+				PCWrite = 1;
+				IF_IDWrite = 1;
+				Reg[32] += 4;
+				return 1;
+			}
+			//sll -> nop
+		}
+		else {
+			//unknown 0xFFFFFFFF 나와도 그냥 쭉 가세요 암거도 프린트 마세요 멈추지 마시요
+			//printf("unknown instruction\n");
+			idex.cont_op.RegDst = 0; 
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 0;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			Reg[32] += 4;
+			return 1;
+		}
+	}
+	else {
+		//For I-type
+		idex.imm = ifid.imm;
+
+		//For J and JAL
+
+		/*
+		char opcode[7];//opcode[6]은 null로 초기화
+		char funct[7];//funct[6]은 null로 초기화
+		char shamt[6];
+		int rs_val;
+		int rt_val;
+		int rd_val;
+		int rs; 
+		int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
+		int rd;
+		int imm;
+		CO cont_op;
+		*/
+
+		if (!strncmp(ifid.opcode, "001000", 6)) {
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			//Reg[Regi(rt)] = Reg[Regi(rs)] + bintoDeci(Imm, 1);
+			Reg[32] += 4;
+			return 1;
+
+			//addi
+		}
+		else if (!strncmp(ifid.opcode, "001100", 6)) {
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			//Reg[Regi(rt)] = Reg[Regi(rs)] & (0x0000FFFF & bintoDeci(Imm, 1));
+			// 왜 0x0000FFFF랑 &를 하지...
+			Reg[32] += 4;
+			return 1;
+			//andi
+		}
+		else if (!strncmp(ifid.opcode, "000100", 6)) {
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 0;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 1;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+
+			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
+			if (Reg[ifid.rs] == Reg[ifid.rt]) {
+				char bubble[33] = "00000000000000000000000000000000\0";
+				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
+				//misprediction in beq --> make IF nop
+				//순서 꼭곡 중요 !!!!!!!
+				//기존 IF 이후에, ID 실행, ID 내에서 IF 0x0으로 초기화 하는 것임 
+				IF(bubble, Reg);//ifid가 nop을 실행한 것처럼 만들기 = id ex mem wb에서 아무 일도 일어나지 않는다.
+				//초기화 한 후에, pc값 제대로 다시 하기 
+				Reg[32] = Reg[32] + 4 + (4 * ifid.imm);
+			}
+			else
+				Reg[32] += 4;
+			//always not taken(조건이 항상 틀릴 거라고 가정)
+			return 1;
+			//beq, offset
+		}
+		else if (!strncmp(ifid.opcode, "000101", 6)) {
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 0;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 1;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+
+			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
+			if (Reg[ifid.rs] != Reg[ifid.rt]) {
+				char bubble[33] = "00000000000000000000000000000000\0";
+				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
+				//misprediction in beq --> make IF nop
+				//순서 꼭곡 중요 !!!!!!!
+				//기존 IF 이후에, ID 실행, ID 내에서 IF 0x0으로 초기화 하는 것임 
+				IF(bubble, Reg);//ifid가 nop을 실행한 것처럼 만들기 = id ex mem wb에서 아무 일도 일어나지 않는다.
+				//초기화 한 후에, pc값 제대로 다시 하기 
+				Reg[32] = Reg[32] + 4 + (4 * ifid.imm);
+			}
+			else
+				Reg[32] += 4;
+			//always not taken(조건이 항상 틀릴 거라고 가정)
+			return 1;
+			//bne, offset
+		}
+		else if (!strncmp(ifid.opcode, "001111", 6)) {
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			//Reg[idex.rt] = (bintoDeci(Imm, 1) << 16); -> EX stage
+			Reg[32] += 4;
+			return 1;
+			//lui
+		}
+		else if (!strncmp(ifid.opcode, "100011", 6)) {
+			//lw
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 1;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 1;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+
+			//Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
+			Reg[32] += 4;
+			return 1;
+		}
+		else if (!strncmp(ifid.opcode, "001101", 6)) {
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			//Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
+			Reg[32] += 4;
+			return 1;
+			//ori
+		}
+		else if (!strncmp(ifid.opcode, "101011", 6)) {
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 0;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 1;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+			//sw
+		}
+		else if (!strncmp(ifid.opcode, "001010", 6)) {
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			/*if (Reg[Regi(rs)] < bintoDeci(Imm, 1))
+				Reg[Regi(rt)] = 1;
+			else
+				Reg[Regi(rt)] = 0;*/
+			Reg[32] += 4;
+			return 1;
+			//slti
+		}
+		else if (!strncmp(ifid.opcode, "000010", 6)) {
+			idex.cont_op.RegDst = 0; //rt
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 0;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			Reg[32] = ifid.targ_addr;
+			return 1;
+			//j
+		}
+		else {
+			//printf("unknown instruction\n");
+			idex.cont_op.RegDst = 0;
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 0;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			Reg[32] += 4;
+			return 1;
+		}
+	}
+}
+int EX(char* middle, int* Reg) {
+	
+	if (!strncmp(forOp, "000000", 6))
+	{//R-type ->  op rs rt rd shamt funct
+		for (int func = 0; func < 6; func++)//funct 확인
+			forFunct[func] = middle[func + 26];
+
+		for (rsi = 0; rsi < 5; rsi++)//rs 확인
+			rs[rsi] = middle[rsi + 6];
+
+		for (rti = 0; rti < 5; rti++)//rt 확인
+			rt[rti] = middle[rti + 11];
+
+		for (rdi = 0; rdi < 5; rdi++)//rd 확인
+			rd[rdi] = middle[rdi + 16];
+
+		for (shi = 0; shi < 5; shi++)//shamt
+			shamt[shi] = middle[shi + 21];
+		//shamt는 양의 정수 0~31
+		//shamt는 $안붙음 --> Shift 함수로 넣어서 출력하기
+
+		if (!strncmp(forFunct, "100000", 6)) {
+			Reg[Regi(rd)] = Reg[Regi(rs)] + Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+			//add
+		}
+		else if (!strncmp(forFunct, "100100", 6)) {
+			Reg[Regi(rd)] = Reg[Regi(rs)] & Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+			//and
+		}
+		else if (!strncmp(forFunct, "100101", 6)) {
+			Reg[Regi(rd)] = Reg[Regi(rs)] | Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+			//or
+		}
+		else if (!strncmp(forFunct, "101010", 6)) {
+			if (Reg[Regi(rs)] < Reg[Regi(rt)])
+				Reg[Regi(rd)] = 1;
+			else
+				Reg[Regi(rd)] = 0;
+			Reg[32] += 4;
+			return 1;
+			//slt
+		}
+		else if (!strncmp(forFunct, "100010", 6)) {
+			Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
+			Reg[32] += 4;
+			return 1;
+			//sub
+		}
+		else if (!strncmp(forFunct, "000000", 6)) {
+			//printf("sll -> nop ");
+			if (!(strncmp(rd, "00000", 5)) && !strncmp(rs, "00000", 5) && !strncmp(rt, "00000", 5) && !strncmp(shamt, "00000", 5)) {
 				Reg[32] += 4;
 				return 1;
 			}
@@ -784,23 +1113,35 @@ int ID(char* middle, int* Reg) {
 	}
 	else {
 		//For I-type
-		
-		//For J and JAL
+		for (rsi = 0; rsi < 5; rsi++)//rs 확인
+			rs[rsi] = middle[rsi + 6];
 
-		if (!strncmp(ifid.opcode, "001000", 6)) {
+		for (rti = 0; rti < 5; rti++)//rt 확인
+			rt[rti] = middle[rti + 11];
+
+		for (immi = 0; immi < 16; immi++)//immediate 확인
+			Imm[immi] = middle[immi + 16];
+
+		//For J and JAL
+		for (tari = 0; tari < 26; tari++) //immediate == 26bit
+			target[tari] = middle[tari + 6];
+
+
+		if (!strncmp(forOp, "001000", 6)) {
 			Reg[Regi(rt)] = Reg[Regi(rs)] + bintoDeci(Imm, 1);
 			Reg[32] += 4;
 			return 1;
 
 			//addi
 		}
-		else if (!strncmp(ifid.opcode, "001100", 6)) {
+		else if (!strncmp(forOp, "001100", 6)) {
 			Reg[Regi(rt)] = Reg[Regi(rs)] & (0x0000FFFF & bintoDeci(Imm, 1));
 			Reg[32] += 4;
 			return 1;
+
 			//andi
 		}
-		else if (!strncmp(ifid.opcode, "000100", 6)) {
+		else if (!strncmp(forOp, "000100", 6)) {
 			if (Reg[Regi(rs)] == Reg[Regi(rt)])
 				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
 			else
@@ -810,7 +1151,7 @@ int ID(char* middle, int* Reg) {
 
 			//beq, offset
 		}
-		else if (!strncmp(ifid.opcode, "000101", 6)) {
+		else if (!strncmp(forOp, "000101", 6)) {
 			if (Reg[Regi(rs)] != Reg[Regi(rt)])
 				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
 			else
@@ -820,34 +1161,44 @@ int ID(char* middle, int* Reg) {
 
 			//bne
 		}
-		else if (!strncmp(ifid.opcode, "001111", 6)) {
+		else if (!strncmp(forOp, "001111", 6)) {
 			Reg[Regi(rt)] = (bintoDeci(Imm, 1) << 16);
 			Reg[32] += 4;
 			return 1;
 
 			//lui
 		}
-		else if (!strncmp(ifid.opcodep, "100011", 6)) {
-			
+		else if (!strncmp(forOp, "100011", 6)) {
+			/*printf("i am lw\n");
+			printf("%x\n", DMem[((Reg[Regi(rs)]+bintoDeci(Imm,1))-0x10000000)/4]);
+			printf("%x\n", bintoDeci(Imm, 1));*/
 			Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
 			Reg[32] += 4;
 			return 1;
 
+			//DMem은 정수형 배열(4 byte 단위)이기 때문에 0x4의 주소값을 갖는 메모리의 데이터(1 byte 단위)를 얻고 싶다면, DMem[0x1]에 접근해야한다. 
+			//lw
+			//lw $2, 1073741824($10)
 		}
-		else if (!strncmp(ifid.opcode, "001101", 6)) {
+		else if (!strncmp(forOp, "001101", 6)) {
 			Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
 			Reg[32] += 4;
 			return 1;
+
 			//ori
 		}
-		else if (!strncmp(ifid.opcode, "101011", 6)) {
+		else if (!strncmp(forOp, "101011", 6)) {
+			/*printf("i am sw\n");
+			printf("%x\n", Reg[Regi(rt)]);
+			printf("%x\n",Reg[Regi(rs)]-0x10000000);
+			printf("%x\n",bintoDeci(Imm,1))*/;
 			DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
 			Reg[32] += 4;
 			return 1;
 
 			//sw
 		}
-		else if (!strncmp(ifid.opcode, "001010", 6)) {
+		else if (!strncmp(forOp, "001010", 6)) {
 			if (Reg[Regi(rs)] < bintoDeci(Imm, 1))
 				Reg[Regi(rt)] = 1;
 			else
@@ -857,15 +1208,17 @@ int ID(char* middle, int* Reg) {
 
 			//slti
 		}
-		else if (!strncmp(ifid.opcode, "000010", 6)) {
+		else if (!strncmp(forOp, "000010", 6)) {
 			Reg[32] = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
+
 			return 1;
+
 			//j
 		}
 		else {
 			printf("unknown instruction\n");
 			Reg[32] += 4;
-			return 1;
+			return -1;
 		}
 	}
 }
