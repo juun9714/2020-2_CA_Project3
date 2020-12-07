@@ -156,13 +156,13 @@ typedef struct MEM_WB {
 	char opcode[7];//opcode[6]은 null로 초기화
 	char funct[7];//funct[6]은 null로 초기화
 	char shamt[6];
-	int data;//reg에 저장될 계산 결과든, mem의 주소를 나타내는 값이든 by ALU
+	int data;//reg에 저장될 계산 결과든, mem에서 load해온 값이든 일단 MEM/WB register는 저장하고, WB stage에서 muxing
 	int dst_reg_id;
 	int rs_val;
 	int rt_val;
 	int rd_val;
 	int rs;
-	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
+	int rt;
 	int rd;
 	int imm;
 	CO cont_op;
@@ -176,6 +176,7 @@ int cycle = 0;
 int given_cycle = 100;
 char PCWrite=1;
 char IF_IDWrite=1;
+int pc_change = 0;
 
 void Bin(int deci, char* result) {
 	//int deci => char * result(binary string)
@@ -638,6 +639,8 @@ void IF(char* middle,int * Reg) {
 			strncpy(ifid.opcode, forOp, 6);
 			ifid.opcode[6] = '/0';
 			ifid.targ_addr = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
+			Reg[32] = ifid.targ_addr;
+			pc_change = 1;
 		}
 		else {
 			//For I-type (addi andi ori slti) (+ lw, sw, beq, bne, lui)
@@ -659,7 +662,7 @@ void IF(char* middle,int * Reg) {
 		}
 	}
 }
-int ID(char* middle, int* Reg) {
+void ID(int* Reg) {
 	/*
 	IF/ID register에서 
 	1. opcode로 control signal 만들어서 ID/EX register에 넣기 
@@ -711,7 +714,6 @@ int ID(char* middle, int* Reg) {
 			IF_IDWrite = 1;
 			
 			Reg[32] += 4;
-			return 1;
 			//add
 		}
 		else if (!strncmp(ifid.funct, "100100", 6)) {
@@ -728,7 +730,6 @@ int ID(char* middle, int* Reg) {
 			IF_IDWrite = 1;
 
 			Reg[32] += 4;
-			return 1;
 			//and
 		}
 		else if (!strncmp(ifid.funct, "100101", 6)) {
@@ -745,7 +746,6 @@ int ID(char* middle, int* Reg) {
 			IF_IDWrite = 1;
 			
 			Reg[32] += 4;
-			return 1;
 			//or
 		}
 		else if (!strncmp(ifid.funct, "101010", 6)) {
@@ -766,7 +766,6 @@ int ID(char* middle, int* Reg) {
 			else
 				Reg[Regi(rd)] = 0;*/
 			Reg[32] += 4;
-			return 1;
 			//slt
 		}
 		else if (!strncmp(ifid.funct, "100010", 6)) {
@@ -784,7 +783,6 @@ int ID(char* middle, int* Reg) {
 
 			//Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
 			Reg[32] += 4;
-			return 1;
 			//sub
 		}
 		else if (!strncmp(ifid.funct, "000000", 6)) {
@@ -802,7 +800,6 @@ int ID(char* middle, int* Reg) {
 				PCWrite = 1;
 				IF_IDWrite = 1;
 				Reg[32] += 4;
-				return 1;
 			}
 			//sll -> nop
 		}
@@ -821,7 +818,6 @@ int ID(char* middle, int* Reg) {
 			PCWrite = 1;
 			IF_IDWrite = 1;
 			Reg[32] += 4;
-			return 1;
 		}
 	}
 	else {
@@ -857,9 +853,6 @@ int ID(char* middle, int* Reg) {
 			PCWrite = 1;
 			IF_IDWrite = 1;
 			//Reg[Regi(rt)] = Reg[Regi(rs)] + bintoDeci(Imm, 1);
-			Reg[32] += 4;
-			return 1;
-
 			//addi
 		}
 		else if (!strncmp(ifid.opcode, "001100", 6)) {
@@ -876,8 +869,6 @@ int ID(char* middle, int* Reg) {
 			IF_IDWrite = 1;
 			//Reg[Regi(rt)] = Reg[Regi(rs)] & (0x0000FFFF & bintoDeci(Imm, 1));
 			// 왜 0x0000FFFF랑 &를 하지...
-			Reg[32] += 4;
-			return 1;
 			//andi
 		}
 		else if (!strncmp(ifid.opcode, "000100", 6)) {
@@ -903,11 +894,11 @@ int ID(char* middle, int* Reg) {
 				IF(bubble, Reg);//ifid가 nop을 실행한 것처럼 만들기 = id ex mem wb에서 아무 일도 일어나지 않는다.
 				//초기화 한 후에, pc값 제대로 다시 하기 
 				Reg[32] = Reg[32] + 4 + (4 * ifid.imm);
+				pc_change = 1;
 			}
-			else
-				Reg[32] += 4;
+			//else
+				//Reg[32] += 4;
 			//always not taken(조건이 항상 틀릴 거라고 가정)
-			return 1;
 			//beq, offset
 		}
 		else if (!strncmp(ifid.opcode, "000101", 6)) {
@@ -933,11 +924,11 @@ int ID(char* middle, int* Reg) {
 				IF(bubble, Reg);//ifid가 nop을 실행한 것처럼 만들기 = id ex mem wb에서 아무 일도 일어나지 않는다.
 				//초기화 한 후에, pc값 제대로 다시 하기 
 				Reg[32] = Reg[32] + 4 + (4 * ifid.imm);
+				pc_change = 1;
 			}
-			else
-				Reg[32] += 4;
+			//else
+			//	Reg[32] += 4;
 			//always not taken(조건이 항상 틀릴 거라고 가정)
-			return 1;
 			//bne, offset
 		}
 		else if (!strncmp(ifid.opcode, "001111", 6)) {
@@ -953,8 +944,6 @@ int ID(char* middle, int* Reg) {
 			PCWrite = 1;
 			IF_IDWrite = 1;
 			//Reg[idex.rt] = (bintoDeci(Imm, 1) << 16); -> EX stage
-			Reg[32] += 4;
-			return 1;
 			//lui
 		}
 		else if (!strncmp(ifid.opcode, "100011", 6)) {
@@ -970,10 +959,7 @@ int ID(char* middle, int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-
 			//Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
-			Reg[32] += 4;
-			return 1;
 		}
 		else if (!strncmp(ifid.opcode, "001101", 6)) {
 			idex.cont_op.RegDst = 0; //rt
@@ -988,8 +974,6 @@ int ID(char* middle, int* Reg) {
 			PCWrite = 1;
 			IF_IDWrite = 1;
 			//Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
-			Reg[32] += 4;
-			return 1;
 			//ori
 		}
 		else if (!strncmp(ifid.opcode, "101011", 6)) {
@@ -1005,8 +989,6 @@ int ID(char* middle, int* Reg) {
 			PCWrite = 1;
 			IF_IDWrite = 1;
 			//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
 			//sw
 		}
 		else if (!strncmp(ifid.opcode, "001010", 6)) {
@@ -1025,8 +1007,6 @@ int ID(char* middle, int* Reg) {
 				Reg[Regi(rt)] = 1;
 			else
 				Reg[Regi(rt)] = 0;*/
-			Reg[32] += 4;
-			return 1;
 			//slti
 		}
 		else if (!strncmp(ifid.opcode, "000010", 6)) {
@@ -1041,8 +1021,6 @@ int ID(char* middle, int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			Reg[32] = ifid.targ_addr;
-			return 1;
 			//j
 		}
 		else {
@@ -1058,31 +1036,64 @@ int ID(char* middle, int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			Reg[32] += 4;
-			return 1;
 		}
 	}
+	//exmem.cont_op = idex.cont_op;
 }
-int EX(char* middle, int* Reg) {
+void EX(char* middle, int* Reg) {
 	/*
-	1. dst 결정하기 (regDST)
-	2. forwarding 조건 만들기 
+	1. dst 결정하기 (regDST -> MUX)
+	2. forwarding 조건 만들기 (forwardA, forwardB <- EX/MEM.rd, MEM/WB.rd, EX/MEM.regWrite, MEM/WB.regWrite, regWrite -> MUX)
 	3. 계산 하기 
-	3-0. 계산 안하는 명령 구분 (jump, beq, bne, nop)
+	3-0. 계산 안하는 명령 구분 (jump, nop, beq, bne -> branch 명령어는 ID 단계에서 계산한다. )
 	3-1. 계산 재료 muxing 하기 
 		- reg + reg (R type)
 		- reg + imm (I type, lw, sw)
 	4. ex/mem에 저장해야할 것들 생각하기 
 		- control options
 		- dst reg(register indexes yes, values?)
-		- 계산 결과
+		- 계산 결과 (메모리 주소값이든, 순수한 계산 결과든)
+
+	5. Reg[32]는 누가 언제 해야하는가,,?
+		- pc value는 jump와 beq, bne에 의해 조작된다, 그 이외의 경우는 항상 pc+4
+			- WB까지 다 하고 나서 pc 값 변경해주기 
+		- jump는 IF stage에서 다음 pc값이 결정 -> jump의 경우 IF stage에서 pc값 지정하기 
+		- beq bne는 ID stage에서 pc값이 결정 
+			-> 만약 not taken이라면, cycle은 정상적으로 1개씩 증가
+				- continue, 다른 명령어들과 동일한 위치에서 pc+4 해주기
+			-> 만약 taken이라면, IF/ID stage를 nop으로 넣고, bubble 하나 들어가는거니까, 
+				- pc에는 target instruction's address 넣어주고
+			-> cycle 1 더 증가, 어디서 증가할지는 더 생각 (각 단계 내? or for문 안에서?)
 
 
+		main의 형태
+		for(cycle=0;cycle<given_cycle;){
+		pc_change=0; 돌릴 때마다 초기화
+		IF;
+		ID;
+		EX;
+		MEM;
+		WB;
+		if(pc_change==0)
+			pc=pc+4;
+	}
 
-
+	typedef struct ID_EX {
+	char opcode[7];//opcode[6]은 null로 초기화
+	char funct[7];//funct[6]은 null로 초기화
+	char shamt[6];
+	int rs_val;
+	int rt_val;
+	int rd_val;
+	int rs;
+	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
+	int rd;
+	int imm;
+	CO cont_op;
+	}IDEX;
 
 	typedef struct EX_MEM {
-	char opcode[7];//opcode[6]은 null로 초기화
+	char opcode[7];//opcode[6]은 null로 초기화 (IF에서) 
 	char funct[7];//funct[6]은 null로 초기화
 	char shamt[6];
 	int alu_res;
@@ -1097,203 +1108,140 @@ int EX(char* middle, int* Reg) {
 	CO cont_op;
 	}EXMEM;
 
-	typedef struct MEM_WB {
-		char opcode[7];//opcode[6]은 null로 초기화
-		char funct[7];//funct[6]은 null로 초기화
-		char shamt[6];
-		int data;//reg에 저장될 계산 결과든, mem의 주소를 나타내는 값이든 by ALU
-		int dst_reg_id;
-		int rs_val;
-		int rt_val;
-		int rd_val;
-		int rs;
-		int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
-		int rd;
-		int imm;
-		CO cont_op;
-	}MEMWB;
 	*/
 
 
 	strncpy(exmem.opcode,idex.opcode, 7);
 	strncpy(exmem.funct, idex.funct, 7);
 	strncpy(exmem.shamt, idex.shamt, 6);
-	if (!strncmp(forOp, "000000", 6))
-	{//R-type ->  op rs rt rd shamt funct
-		for (int func = 0; func < 6; func++)//funct 확인
-			forFunct[func] = middle[func + 26];
 
-		for (rsi = 0; rsi < 5; rsi++)//rs 확인
-			rs[rsi] = middle[rsi + 6];
+	exmem.rd = idex.rd;
+	exmem.rs = idex.rs;
+	exmem.rt = idex.rt;
+	exmem.imm = idex.imm;
+	
+	
+	exmem.rd_val = idex.rd_val;
+	exmem.rs_val = idex.rs_val;
+	exmem.rt_val = idex.rt_val;
+	//필요함 -> sw 명령어 : id에서 읽은 register 내의 값을 WB stage에서 활용해야함
+	/*
+	* R-type, I-type register index가 다르기 때문에 각 if문 안에서 처리할 것
+	* 
+	1. EX HAZARD
+		-EX/MEM.dst_reg_id==ID/EX.rs
+		-EX/MEM.dst_reg_id==ID/EX.rt
 
-		for (rti = 0; rti < 5; rti++)//rt 확인
-			rt[rti] = middle[rti + 11];
+	*/
+	if()
 
-		for (rdi = 0; rdi < 5; rdi++)//rd 확인
-			rd[rdi] = middle[rdi + 16];
 
-		for (shi = 0; shi < 5; shi++)//shamt
-			shamt[shi] = middle[shi + 21];
-		//shamt는 양의 정수 0~31
-		//shamt는 $안붙음 --> Shift 함수로 넣어서 출력하기
 
-		if (!strncmp(forFunct, "100000", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] + Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
+	if (!strncmp(idex.opcode, "000000", 6))
+	{//R-type ->  op rs rt rd shamt funct -> rd is dst regiter id
+		exmem.dst_reg_id = idex.rd;
+
+		if (!strncmp(idex.funct, "100000", 6)) {
+			exmem.alu_res = idex.rs_val + idex.rt_val;
 			//add
 		}
-		else if (!strncmp(forFunct, "100100", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] & Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
+		else if (!strncmp(idex.funct, "100100", 6)) {
+			exmem.alu_res = (idex.rs_val & idex.rt_val);
 			//and
 		}
-		else if (!strncmp(forFunct, "100101", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] | Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
+		else if (!strncmp(idex.funct, "100101", 6)) {
+			exmem.alu_res = (idex.rs_val | idex.rt_val);
 			//or
 		}
-		else if (!strncmp(forFunct, "101010", 6)) {
-			if (Reg[Regi(rs)] < Reg[Regi(rt)])
-				Reg[Regi(rd)] = 1;
+		else if (!strncmp(idex.funct, "101010", 6)) {
+			if (idex.rs_val < idex.rt_val)
+				exmem.alu_res = 1;
 			else
-				Reg[Regi(rd)] = 0;
-			Reg[32] += 4;
-			return 1;
+				exmem.alu_res = 0;
 			//slt
 		}
-		else if (!strncmp(forFunct, "100010", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
+		else if (!strncmp(idex.funct, "100010", 6)) {
+			exmem.alu_res = idex.rs_val - idex.rt_val;
 			//sub
 		}
-		else if (!strncmp(forFunct, "000000", 6)) {
-			//printf("sll -> nop ");
-			if (!(strncmp(rd, "00000", 5)) && !strncmp(rs, "00000", 5) && !strncmp(rt, "00000", 5) && !strncmp(shamt, "00000", 5)) {
-				Reg[32] += 4;
-				return 1;
-			}
+		else if (!strncmp(idex.funct, "000000", 6)) {
+			//if ((idex.rd == 0) && (idex.rs == 0) && (idex.rt == 0) && !strncmp(idex.shamt, "00000", 5))
 			//sll -> nop
-		}
-		else {
-			printf("unknown instruction\n");
-			Reg[32] += 4;
-			return -1;
 		}
 	}
 	else {
 		//For I-type
-		for (rsi = 0; rsi < 5; rsi++)//rs 확인
-			rs[rsi] = middle[rsi + 6];
-
-		for (rti = 0; rti < 5; rti++)//rt 확인
-			rt[rti] = middle[rti + 11];
-
-		for (immi = 0; immi < 16; immi++)//immediate 확인
-			Imm[immi] = middle[immi + 16];
-
+		exmem.dst_reg_id = idex.rt;
 		//For J and JAL
-		for (tari = 0; tari < 26; tari++) //immediate == 26bit
-			target[tari] = middle[tari + 6];
 
-
-		if (!strncmp(forOp, "001000", 6)) {
-			Reg[Regi(rt)] = Reg[Regi(rs)] + bintoDeci(Imm, 1);
-			Reg[32] += 4;
-			return 1;
-
+		if (!strncmp(idex.opcode, "001000", 6)) {
+			exmem.alu_res = idex.rs_val + idex.imm;
 			//addi
 		}
-		else if (!strncmp(forOp, "001100", 6)) {
-			Reg[Regi(rt)] = Reg[Regi(rs)] & (0x0000FFFF & bintoDeci(Imm, 1));
-			Reg[32] += 4;
-			return 1;
-
+		else if (!strncmp(idex.opcode, "001100", 6)) {
+			exmem.alu_res = idex.rs_val & (0x0000FFFF & idex.imm);
 			//andi
 		}
-		else if (!strncmp(forOp, "000100", 6)) {
-			if (Reg[Regi(rs)] == Reg[Regi(rt)])
+		else if (!strncmp(idex.opcode, "000100", 6)) {
+			/*if (Reg[Regi(rs)] == Reg[Regi(rt)])
 				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
 			else
-				Reg[32] += 4;
-
-			return 1;
-
+				Reg[32] += 4;*/
 			//beq, offset
+			//rs와 rt가 같으면  pc+4+(offset*4)
+			//mem과 wb에서 할거 없음
 		}
-		else if (!strncmp(forOp, "000101", 6)) {
-			if (Reg[Regi(rs)] != Reg[Regi(rt)])
+		else if (!strncmp(idex.opcode, "000101", 6)) {
+			/*if (Reg[Regi(rs)] != Reg[Regi(rt)])
 				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
 			else
-				Reg[32] += 4;
-
-			return 1;
-
+				Reg[32] += 4;*/
 			//bne
+			
 		}
-		else if (!strncmp(forOp, "001111", 6)) {
-			Reg[Regi(rt)] = (bintoDeci(Imm, 1) << 16);
-			Reg[32] += 4;
-			return 1;
-
+		else if (!strncmp(idex.opcode, "001111", 6)) {
+			exmem.alu_res = (idex.imm << 16);
 			//lui
 		}
-		else if (!strncmp(forOp, "100011", 6)) {
+		else if (!strncmp(idex.opcode, "100011", 6)) {
 			/*printf("i am lw\n");
 			printf("%x\n", DMem[((Reg[Regi(rs)]+bintoDeci(Imm,1))-0x10000000)/4]);
 			printf("%x\n", bintoDeci(Imm, 1));*/
-			Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
-			Reg[32] += 4;
-			return 1;
-
+			//Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
 			//DMem은 정수형 배열(4 byte 단위)이기 때문에 0x4의 주소값을 갖는 메모리의 데이터(1 byte 단위)를 얻고 싶다면, DMem[0x1]에 접근해야한다. 
+			exmem.alu_res = ((idex.rs_val + idex.imm) - 0x10000000) / 4;//접근하고자 하는 memory 주소/4
 			//lw
 			//lw $2, 1073741824($10)
 		}
-		else if (!strncmp(forOp, "001101", 6)) {
-			Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
-			Reg[32] += 4;
-			return 1;
-
+		else if (!strncmp(idex.opcode, "001101", 6)) {
+			//Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
+			exmem.alu_res = idex.rs_val | (0x0000FFFF & idex.imm);
 			//ori
 		}
-		else if (!strncmp(forOp, "101011", 6)) {
-			/*printf("i am sw\n");
-			printf("%x\n", Reg[Regi(rt)]);
+		else if (!strncmp(idex.opcode, "101011", 6)) {
+			/*printf("%x\n", Reg[Regi(rt)]);
 			printf("%x\n",Reg[Regi(rs)]-0x10000000);
-			printf("%x\n",bintoDeci(Imm,1))*/;
-			DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
-
+			printf("%x\n",bintoDeci(Imm,1));*/
+			//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
+			exmem.alu_res= ((idex.rs_val + idex.imm) - 0x10000000) / 4;//rt에 저장되어 있던 값을 저장할 memory의 주소값 계산
 			//sw
 		}
-		else if (!strncmp(forOp, "001010", 6)) {
-			if (Reg[Regi(rs)] < bintoDeci(Imm, 1))
-				Reg[Regi(rt)] = 1;
+		else if (!strncmp(idex.opcode, "001010", 6)) {
+			if (idex.rs_val < idex.imm)
+				exmem.alu_res = 1;
 			else
-				Reg[Regi(rt)] = 0;
-			Reg[32] += 4;
-			return 1;
-
+				exmem.alu_res = 0;
 			//slti
 		}
-		else if (!strncmp(forOp, "000010", 6)) {
-			Reg[32] = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
-
-			return 1;
-
+		/*else if (!strncmp(idex.opcode, "000010", 6)) {
+			//Reg[32] = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
 			//j
 		}
 		else {
-			printf("unknown instruction\n");
 			Reg[32] += 4;
-			return -1;
-		}
+		}*/
 	}
+	exmem.cont_op = idex.cont_op;
 }
 
 
@@ -1427,6 +1375,7 @@ int main(int argc, char* argv[]) {
 		//--> middle, last가 이진 코드 잘 읽고 있는 것 확인 
 		out++;//읽는 instruction 개수
 		IF(middle, Reg);
+		ID(Reg);
 		int check = printMid(middle, Reg, DMem, last); //한줄씩 각종 함수를 사용해서 출력, 명령어에 맞춰서 Reg[32]인 pc 증가시키기 
 		if (check == 1)
 			continue;
