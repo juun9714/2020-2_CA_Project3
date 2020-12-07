@@ -137,14 +137,34 @@ typedef struct ID_EX {
 }IDEX;
 
 typedef struct EX_MEM {
+	char opcode[7];//opcode[6]은 null로 초기화
+	char funct[7];//funct[6]은 null로 초기화
+	char shamt[6];
 	int alu_res;
 	int dst_reg_id;
+	int rs_val;
+	int rt_val;
+	int rd_val;
+	int rs;
+	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
+	int rd;
+	int imm;
 	CO cont_op;
 }EXMEM;
 
 typedef struct MEM_WB {
+	char opcode[7];//opcode[6]은 null로 초기화
+	char funct[7];//funct[6]은 null로 초기화
+	char shamt[6];
 	int data;//reg에 저장될 계산 결과든, mem의 주소를 나타내는 값이든 by ALU
 	int dst_reg_id;
+	int rs_val;
+	int rt_val;
+	int rd_val;
+	int rs;
+	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
+	int rd;
+	int imm;
 	CO cont_op;
 }MEMWB;
 
@@ -1044,7 +1064,60 @@ int ID(char* middle, int* Reg) {
 	}
 }
 int EX(char* middle, int* Reg) {
-	
+	/*
+	1. dst 결정하기 (regDST)
+	2. forwarding 조건 만들기 
+	3. 계산 하기 
+	3-0. 계산 안하는 명령 구분 (jump, beq, bne, nop)
+	3-1. 계산 재료 muxing 하기 
+		- reg + reg (R type)
+		- reg + imm (I type, lw, sw)
+	4. ex/mem에 저장해야할 것들 생각하기 
+		- control options
+		- dst reg(register indexes yes, values?)
+		- 계산 결과
+
+
+
+
+
+	typedef struct EX_MEM {
+	char opcode[7];//opcode[6]은 null로 초기화
+	char funct[7];//funct[6]은 null로 초기화
+	char shamt[6];
+	int alu_res;
+	int dst_reg_id;
+	int rs_val;
+	int rt_val;
+	int rd_val;
+	int rs;
+	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
+	int rd;
+	int imm;
+	CO cont_op;
+	}EXMEM;
+
+	typedef struct MEM_WB {
+		char opcode[7];//opcode[6]은 null로 초기화
+		char funct[7];//funct[6]은 null로 초기화
+		char shamt[6];
+		int data;//reg에 저장될 계산 결과든, mem의 주소를 나타내는 값이든 by ALU
+		int dst_reg_id;
+		int rs_val;
+		int rt_val;
+		int rd_val;
+		int rs;
+		int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
+		int rd;
+		int imm;
+		CO cont_op;
+	}MEMWB;
+	*/
+
+
+	strncpy(exmem.opcode,idex.opcode, 7);
+	strncpy(exmem.funct, idex.funct, 7);
+	strncpy(exmem.shamt, idex.shamt, 6);
 	if (!strncmp(forOp, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		for (int func = 0; func < 6; func++)//funct 확인
