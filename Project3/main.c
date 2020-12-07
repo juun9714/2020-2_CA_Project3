@@ -11,6 +11,96 @@ funct code로 control signal 만드는 함수 만들기?
 3. EX/MEM
 4. MEM/WB
 */
+
+
+/*
+*
+* 
+* check sum은 id/ex.rs_val으로 forward 이전의 값으로 하기
+* --> check sum bypassing 빼고는 항상 제일 먼저 
+<hazard 해야할 것>
+
+일단 hazard없다고 가정하고 돌아가게 해놓고, 각 단계 마지막에 조건문으로 hazard 처리하기 
+1. data hazard
+0:no forward, 1:mem forward, 2:EX forward, 3:Bypassing
+
+	- register에 저장한 값을 다음 inst가 재료로 가져다 써야 하는 상황
+
+		1) EX HAZARD
+		- regWrite인 명령 + 바로 다음에 해당 reg를 갖다쓴다(j는 해당 안됨): EX의 결과를 EX의 재료로 넣어준다 
+		(if (ex/mem.dst == id/ex.rs or id/ex.rt //맨 처음에 조건 확인?) 
+		--> id/ex.rs_val or id/ex.rt_val=ex/mem.alu_res)
+		--> forward
+
+		memtoReg=0
+		memWrite=0
+		memRead=0
+		RegWrite=1
+
+		if(ex/mem.dst==id/ex.rs, rt && ex/mem.co.regWrite=1 && ex.mem.dst!=0)
+		{
+		id/ex.val=ex/mem.alu_res
+		
+		dst==rs
+		forwardA(rs)=2
+		dst==rt
+		forwardB(rt)=2
+		}
+
+		2) MEM HAZARD (EX hazard가 없을 때만 발동 + 그냥 BYPASS도 이걸로?)
+		regWrite인 명령 + 다음 다음에 해당 reg를 갖다쓴다 : Ex의 결과를 mem/wb.data
+		(if(mem/wb.dst==id/ex.rs or rt)
+		id/ex.rs_val or rt_val=mem/wb.data
+
+		if(mem/wb.dst==id/ex.rs or rt && mem/wb.co.regWrite==1 && mem/wb.dst !=0 
+		&& !(ex/mem.dst==id/ex.rs, rt && ex/mem.co.regWrite=1 && ex.mem.dst!=0))
+		{
+		id/ex.val=mem/wb.data
+		
+		dst==rs
+		forwardA(rs)=1
+		dst==rt
+		forwardB(rt)=1
+		}
+
+		3) Bypassing <-- mem hazard랑 구현이 똑같은거같은데(load가아니니까?)
+		--> WB 함수 내에서 조건 맞으면 바로 저장..? 모루겠다 나중에 
+		--> bypass 이후의 값은 checksum으로 해당
+		if(mem/wb.dst==id/ex.rs or rt)
+		id/ex.val=mem/wb.data
+
+
+
+		<MEM HAZARD와 동일>
+		dst==rs
+		forwardA(rs)=1
+		dst==rt
+		forwardB(rt)=1
+		
+
+		4) Load-Use Data Hazard
+			1. 
+			mem -> 한칸 띄고 -> ex (mem hazard)
+			--> control option 차이로 명령어 달리해서 구분 여기는 memRead, memtoreg
+			이것도 ex hazard 없을때만..
+			if(mem/wb.dst==id/ex.rs or rt && mem/wb.regWrite=1 && mem/wb.dst!=0
+			&& !(ex/mem.dst==id/ex.rs, rt && ex/mem.co.regWrite=1 && ex.mem.dst!=0))
+			id/ex.val=mem/wb.data
+
+			2.
+			mem -> 바로 ex (bubble 필요)
+
+			if(id/ex.rt == if/id.rs or rt)
+
+			if/ex.co.all = 0 // do nothing at ex mem wb for this time
+			do not change value of IF/ID register and PC value
+
+			IF 함수 내에서 if/id 값을 갱신할테니 IF 함수 맨 첫에 이런 상황인지 check 하는 조건식
+			+ 그 바로 상위 블록 내에서 pc 바꾸는 거 조건문 안에 넣어서 이런 상황이면 pc값 갱신 하지 않기
+			--> PCWrite = 0, IF_IDWrite= 0 --> 전역으로 쓰자
+*/
+
+
 typedef struct control_options {
 	char RegDst;
 	char MemtoReg;
@@ -18,40 +108,43 @@ typedef struct control_options {
 	char MemRead;
 	char MemWrite;
 	char Branch;
-	char PCWrite;
-	char IF_IDWrite;
 	char IF_Flush;
-	char ForwardA[2];
-	char ForwardB[2];
+	char ForwardA; //RS 0~3까지만 표현하면됨 0:no forward, 1:mem forward, 2:EX forward
+	char ForwardB; //RT 0~3까지만 표현하면됨 0:no forward, 1:mem forward, 2:EX forward
 }CO;
 typedef struct IF_ID {
 	char opcode[7];//opcode[6]은 null로 초기화
+	char funct[7];//funct[6]은 null로 초기화
+	char shamt[6];
 	int rs;
 	int rt;
 	int rd;
-	char funct[7];//funct[6]은 null로 초기화
 	int imm;
 	int targ_addr;
 }IFID;
 typedef struct ID_EX {
 	char opcode[7];//opcode[6]은 null로 초기화
+	char funct[7];//funct[6]은 null로 초기화
+	char shamt[6];
 	int rs_val;
 	int rt_val;
 	int rd_val;
-	int rs_id;
-	int rt_id;
-	int rd_id;
+	int rs; 
+	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
+	int rd;
 	CO cont_op;
 }IDEX;
 
 typedef struct EX_MEM {
 	int alu_res;
-	int dst_reg;
+	int dst_reg_id;
+	CO cont_op;
 }EXMEM;
 
 typedef struct MEM_WB {
-	int data_to_store;
-	int dst_reg;
+	int data;//reg에 저장될 계산 결과든, mem의 주소를 나타내는 값이든 by ALU
+	int dst_reg_id;
+	CO cont_op;
 }MEMWB;
 
 IFID ifid; 
@@ -60,6 +153,8 @@ EXMEM exmem;
 MEMWB memwb;
 int cycle = 0;
 int given_cycle = 100;
+char PCWrite=1;
+char IF_IDWrite=1;
 
 void Bin(int deci, char* result) {
 	//int deci => char * result(binary string)
@@ -454,7 +549,7 @@ int printMid(char* middle, int* Reg, int* DMem, char* last) {
 	}
 }
 
-void IF(char* middle) {
+void IF(char* middle,int * Reg) {
 	/*
 	32 bit string이 들어옴 by middle
 
@@ -505,6 +600,9 @@ void IF(char* middle) {
 		ifid.rt = Regi(rt);
 		strncpy(ifid.funct, forFunct, 6);
 		ifid.funct[6] = '/0';
+		strncpy(ifid.shamt, shamt,5);
+		ifid.shamt[5] = '/0';
+
 		//ifid.shamt 이 simulator에 shift 하는 명령어 없음
 		//IF/ID set
 
@@ -552,60 +650,127 @@ int ID(char* middle, int* Reg) {
 	5. target address 계산하기(beq, bne)
 	
 	*/
-	strncpy(idex.opcode, ifid.opcode, 6);
-
+	//7개 문자 그대로 카피하는 이유 -> IF 함수에서 이미 마지막 요소는 null로 초기화 했기 때문에, 그대로 옮기면 null도 들어올듯
+	strncpy(idex.opcode, ifid.opcode, 7);
+	strncpy(idex.funct, ifid.funct, 7);
+	strncpy(idex.shamt, ifid.shamt, 6);
+	/*
+	char RegDst; //rt=0(i) rd=1(r)
+	char MemtoReg;
+	char RegWrite;
+	char MemRead;
+	char MemWrite;
+	char Branch;
+	char PCWrite; 전역으로 뺌
+	char IF_IDWrite; 전역으로 뺌
+	char IF_Flush;
+	char ForwardA; rs 0~3까지만 표현하면됨 0:no forward, 1:mem forward, 2:EX forward
+	char ForwardB; rt
+	*/
 
 	if (!strncmp(ifid.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
-		idex.rd_id = ifid.rd;
-		idex.rs_id = ifid.rs;
-		idex.rt_id = ifid.rt;
+		//id/ex register에 reg index, reg value 둘 다 넘기기
+		idex.rd = ifid.rd;
+		idex.rs = ifid.rs;
+		idex.rt = ifid.rt;
 		idex.rd_val = Reg[ifid.rd];
 		idex.rs_val = Reg[ifid.rs];
 		idex.rt_val = Reg[ifid.rt];
 
-
 		if (!strncmp(ifid.funct, "100000", 6)) {
-			idex.cont_op.RegWrite = 1;
-			idex.cont_op.RegDst = 1;
+			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
 			idex.cont_op.MemRead = 0;
 			idex.cont_op.MemWrite = 0;
 			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush= 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			
 			Reg[32] += 4;
 			return 1;
 			//add
 		}
 		else if (!strncmp(ifid.funct, "100100", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] & Reg[Regi(rt)];
+			idex.cont_op.RegDst = 1; //rd
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+
 			Reg[32] += 4;
 			return 1;
 			//and
 		}
 		else if (!strncmp(ifid.funct, "100101", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] | Reg[Regi(rt)];
+			idex.cont_op.RegDst = 1; //rd
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			
 			Reg[32] += 4;
 			return 1;
 			//or
 		}
 		else if (!strncmp(ifid.funct, "101010", 6)) {
-			if (Reg[Regi(rs)] < Reg[Regi(rt)])
+			idex.cont_op.RegDst = 1; //rd
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+			
+			/*if (Reg[Regi(rs)] < Reg[Regi(rt)])
 				Reg[Regi(rd)] = 1;
 			else
-				Reg[Regi(rd)] = 0;
+				Reg[Regi(rd)] = 0;*/
 			Reg[32] += 4;
 			return 1;
 			//slt
 		}
 		else if (!strncmp(ifid.funct, "100010", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
+			idex.cont_op.RegDst = 1; //rd
+			idex.cont_op.MemtoReg = 0;
+			idex.cont_op.RegWrite = 1;
+			idex.cont_op.MemRead = 0;
+			idex.cont_op.MemWrite = 0;
+			idex.cont_op.Branch = 0;
+			idex.cont_op.IF_Flush = 0;
+			idex.cont_op.ForwardA = 0;
+			idex.cont_op.ForwardB = 0;
+			PCWrite = 1;
+			IF_IDWrite = 1;
+
+			//Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
 			Reg[32] += 4;
 			return 1;
 			//sub
 		}
 		else if (!strncmp(ifid.funct, "000000", 6)) {
 			//printf("sll -> nop ");
-			if (!(strncmp(rd, "00000", 5)) && !strncmp(rs, "00000", 5) && !strncmp(rt, "00000", 5) && !strncmp(shamt, "00000", 5)) {
+			if ((ifid.rd==0) && (ifid.rs == 0) && (ifid.rt == 0) && !strncmp(shamt, "00000", 5)) {
 				Reg[32] += 4;
 				return 1;
 			}
@@ -835,7 +1000,7 @@ int main(int argc, char* argv[]) {
 		//Reg[31] += 4;
 		//--> middle, last가 이진 코드 잘 읽고 있는 것 확인 
 		out++;//읽는 instruction 개수
-		IF(middle);
+		IF(middle, Reg);
 		int check = printMid(middle, Reg, DMem, last); //한줄씩 각종 함수를 사용해서 출력, 명령어에 맞춰서 Reg[32]인 pc 증가시키기 
 		if (check == 1)
 			continue;
