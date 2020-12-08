@@ -587,6 +587,7 @@ void IF(char* middle,int * Reg) {
 	일단 지금 inst mem = last 배열, data memory = DMem, register file = Reg
 	
 	*/
+	printf("im in if stage\n");
 	strncpy(ifid.pc_register, middle, 32);
 	ifid.pc_register[32] = '\0';
 	//Common//
@@ -671,6 +672,8 @@ void IF(char* middle,int * Reg) {
 	}
 }
 int ID(int* Reg) {
+	printf("im in id stage\n");
+
 	/*
 	IF/ID register에서 
 	1. opcode로 control signal 만들어서 ID/EX register에 넣기 
@@ -729,6 +732,7 @@ int ID(int* Reg) {
 		idex.cont_op.ForwardB = 0;
 		PCWrite = 0;
 		IF_IDWrite = 0;
+		printf("checksum in nop\n");
 		checksum = (checksum << 1 | checksum >> 31) ^ 0;
 		/*
 		사실 IF/ID를 갱신하지 않는 방법 = instruction을 똑같은걸 넣으면 됨 = pc value를 똑같은 것을 넣어주면 됨
@@ -1056,15 +1060,32 @@ int ID(int* Reg) {
 	//6. bypassing : wb에서 저장할 값을 ID stage에서 읽어서 다음 stage로 전달해줘야할 때
 	//load든, R-type instruction이든 
 	//일반적인 경우 이후에 이 예외처리를 if문으로 해줘야 함 
+	int bypass = 0;
+	printf("memwb.dst_reg_id: %d\n", memwb.dst_reg_id);
+	printf("ifid.rs: %d\n", ifid.rs);
+	printf("memwb.cont_op.RegWrite: %d\n", memwb.cont_op.RegWrite);
+	printf("memwb.dst_reg_id: %d\n", memwb.dst_reg_id);
 	if (memwb.dst_reg_id == ifid.rs && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
 		idex.rs_val = memwb.data;
+		bypass = 1;
 	}
 	else if (memwb.dst_reg_id == ifid.rt && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
 		idex.rt_val = memwb.data;
 	}
 
 	//이 이후에 checksum 계산해주기
-	checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val;
+	if(bypass==1)
+		checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val;
+	else {
+		/*printf("not bypass, ifid.rs is %d and Reg[ifid.rs] = %x\n", ifid.rs, Reg[ifid.rs]);
+		printf("check sum : %x\n", checksum);
+		printf("check sum<<1 >>31 : %x\n", ((checksum << 1) |( checksum >> 31)));*/
+
+		checksum = (checksum << 1 | checksum >> 31) ^ Reg[ifid.rs];
+		/*printf("check sum : %x\n", checksum);*/
+	}
+
+
 	return 1;
 }
 void EX(char* middle, int* Reg) {
@@ -1111,6 +1132,7 @@ void EX(char* middle, int* Reg) {
 			pc=pc+4;
 	}
 	*/
+	printf("im in EX stage\n");
 
 
 	
@@ -1244,6 +1266,9 @@ void EX(char* middle, int* Reg) {
 }
 
 int MEM(char* middle, int* DMem) {
+
+	printf("im in mem stage\n");
+
 	/*
 	MEM에서 할 일
 	1. load, store 구현
@@ -1333,7 +1358,8 @@ int MEM(char* middle, int* DMem) {
 	memwb.cont_op = exmem.cont_op;
 }
 int WB(char* middle, int* Reg) {
-	
+	printf("im in wb stage\n");
+
 	/*
 	
 	WB에서 할일
@@ -1381,6 +1407,7 @@ int WB(char* middle, int* Reg) {
 		//For J and JAL
 		if (!strncmp(memwb.opcode, "001000", 6)) {
 			Reg[memwb.dst_reg_id] = memwb.data;
+			printf("im addi in WB stage. storing data is %x\n", Reg[memwb.dst_reg_id]);
 			//addi
 		}
 		else if (!strncmp(memwb.opcode, "001100", 6)) {
@@ -1533,48 +1560,212 @@ int main(int argc, char* argv[]) {
 			//만약 Reg[32]에 4가 저장되어있으면 두번째 명령어를 읽으라는 소리 = last[32]를 읽어야 함
 		}
 		out++;//cycle 수 
+
 		if_f = 1;
+
+		/*
 		IF(middle, Reg);
-		//if stage 내에서 ID flag = 1 로 설정해주기 
-		if (if_f == 1) {
-			id_f = 1;
+		if (if_f == 1 && id_f == 1) {
 			ID(Reg);
+			if (id_f == 1 && ex_f == 1) {
+				EX(middle, Reg);
+				if (ex_f == 1 && mem_f == 1) {
+					MEM(middle, DMem);
+					if (mem_f == 1 && wb_f == 1) {
+						WB(middle, Reg);
+						printf("pipe line is fully utilized !!\n");
+					}
+					else {
+						wb_f = 1;
+						printf("다음 기회에 if id ex mem wb 다섯 다 실행\n");
+					}
+				}
+				else {
+					mem_f = 1;
+					printf("다음 기회에 if id ex mem 넷 다 실행\n");
+				}
+					
+			}
+			else {
+				ex_f = 1;
+				printf("다음 기회에 if id ex 셋 다 실행\n");
+			}
 		}
+		else {
+			id_f = 1;
+			printf("다음 기회에 if id 둘 다 실행\n");
+		}
+		*/
+		/////////////////////////////////////////
 		
-		if (id_f == 1) {
-			ex_f = 1;
+		if (if_f = 1 && id_f == 0 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
+			//if stage만 활성화
+			IF(middle, Reg);
+			id_f = 1;
+			printf("다음 기회에 if id 둘 다 실행\n");
+			if (PCWrite == 1) {
+				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
+				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
+				//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
+				//Reg[32]를 증가하지 않는 경우 
+				/*
+				1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다
+				2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
+				*/
+				Reg[32] += 4;
+			}
+
+			if (morecycle == 1) {
+				out++;
+				/*
+				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
+				--> ID stage
+				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
+				--> 자동으로 cycle 하나 더 증가
+				*/
+			}
+			continue;
+		}
+
+		if (if_f = 1 && id_f == 1 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
+			/*
+			if,id stage만 활성화
+			
+			역순으로 stage를 진행해야, 이전 cycle에 저장해놓은 FF가 활용되는 거임
+			*/
+			ID(Reg);
+			IF(middle, Reg);
+
+			ex_f = 1; 
+			printf("다음 기회에 if id ex 셋 다 실행\n");
+			if (PCWrite == 1) {
+				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
+				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
+				//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
+				//Reg[32]를 증가하지 않는 경우 
+				/*
+				1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다
+				2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
+				*/
+				Reg[32] += 4;
+			}
+
+			if (morecycle == 1) {
+				out++;
+				/*
+				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
+				--> ID stage
+				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
+				--> 자동으로 cycle 하나 더 증가
+				*/
+			}
+			continue;
+		}
+		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 0 && wb_f == 0) {
+			/*
+			if,id,exe stage만 활성화
+
+			역순으로 stage를 진행해야, 이전 cycle에 저장해놓은 FF가 활용되는 거임
+			*/
 			EX(middle, Reg);
+			ID(Reg);
+			IF(middle, Reg);
+			mem_f = 1; 
+			printf("다음 기회에 if id ex mem 넷 다 실행\n");
+			if (PCWrite == 1) {
+				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
+				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
+				//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
+				//Reg[32]를 증가하지 않는 경우 
+				/*
+				1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다
+				2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
+				*/
+				Reg[32] += 4;
+			}
+
+			if (morecycle == 1) {
+				out++;
+				/*
+				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
+				--> ID stage
+				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
+				--> 자동으로 cycle 하나 더 증가
+				*/
+			}
+			continue;
 		}
 
-		if (ex_f == 1) {
-			mem_f = 1;
+
+		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 0) {
+			/*
+			if,id,exe,mem stage만 활성화
+
+			역순으로 stage를 진행해야, 이전 cycle에 저장해놓은 FF가 활용되는 거임
+			*/
 			MEM(middle, DMem);
-		}
+			EX(middle, Reg);
+			ID(Reg);
+			IF(middle, Reg);
+			wb_f = 1;
+			printf("다음 기회에 if id ex mem wb 다섯 다 실행\n");
+			if (PCWrite == 1) {
+				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
+				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
+				//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
+				//Reg[32]를 증가하지 않는 경우 
+				/*
+				1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다
+				2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
+				*/
+				Reg[32] += 4;
+			}
 
-		if (mem_f == 1) {
+			if (morecycle == 1) {
+				out++;
+				/*
+				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
+				--> ID stage
+				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
+				--> 자동으로 cycle 하나 더 증가
+				*/
+			}
+			continue;
+		}
+		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 1) {
+			/*
+			fully utilized
+			역순으로 stage를 진행해야, 이전 cycle에 저장해놓은 FF가 활용됨
+			근데 이러니까 bypassing 등에 문제가 생김 
+			*/
 			WB(middle, Reg);
-		}
+			MEM(middle, DMem);
+			EX(middle, Reg);
+			ID(Reg);
+			IF(middle, Reg);
+			printf("pipe line is fully utilized !!\n");
+			if (PCWrite == 1) {
+				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
+				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
+				//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
+				//Reg[32]를 증가하지 않는 경우 
+				/*
+				1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다
+				2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
+				*/
+				Reg[32] += 4;
+			}
 
-		if (PCWrite == 1) {
-			//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
-			//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
-			//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
-			//Reg[32]를 증가하지 않는 경우 
-			/*
-			1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다 
-			2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
-			*/
-			Reg[32] += 4;
-		}
-
-		if (morecycle == 1) {
-			out++;
-			/*
-			beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다. 
-			--> ID stage
-			load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다. 
-			--> 자동으로 cycle 하나 더 증가
-			*/
+			if (morecycle == 1) {
+				out++;
+				/*
+				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
+				--> ID stage
+				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
+				--> 자동으로 cycle 하나 더 증가
+				*/
+			}
+			continue;
 		}
 	}
 	free(last);
@@ -1590,11 +1781,10 @@ int main(int argc, char* argv[]) {
 		printf("Checksum: 0x%08x\n", checksum);
 		for (int regg = 0; regg < 33; regg++) {
 			if (regg == 32)
-				printf("PC: 0x%08x\n", Reg[regg]);
+				printf("PC: 0x%08x\n", Reg[regg]-4);
 			else
 				printf("$%d: 0x%08x\n", regg, Reg[regg]);
 		}
-		//printf("PC in IF stage : 0x%s\n", ifid.pc_register);
 	}
 	return 0;
 }
