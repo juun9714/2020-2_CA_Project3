@@ -1533,7 +1533,7 @@ int main(int argc, char* argv[]) {
 			//만약 Reg[32]에 4가 저장되어있으면 두번째 명령어를 읽으라는 소리 = last[32]를 읽어야 함
 		}
 		out++;//cycle 수 
-
+		if_f = 1;
 		IF(middle, Reg);
 		//if stage 내에서 ID flag = 1 로 설정해주기 
 		if (if_f == 1) {
