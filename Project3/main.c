@@ -121,6 +121,7 @@ typedef struct IF_ID {
 	int rd;
 	int imm;
 	int targ_addr;
+	char pc_register[33];
 }IFID;
 typedef struct ID_EX {
 	char opcode[7];//opcode[6]은 null로 초기화
@@ -177,6 +178,12 @@ int given_cycle = 100;
 char PCWrite=1;
 char IF_IDWrite=1;
 int morecycle = 0;
+int checksum = 0;
+int if_f = 0;
+int id_f = 0;
+int ex_f = 0;
+int mem_f = 0;
+int wb_f = 0;
 
 void Bin(int deci, char* result) {
 	//int deci => char * result(binary string)
@@ -580,7 +587,8 @@ void IF(char* middle,int * Reg) {
 	일단 지금 inst mem = last 배열, data memory = DMem, register file = Reg
 	
 	*/
-
+	strncpy(ifid.pc_register, middle, 32);
+	ifid.pc_register[32] = '\0';
 	//Common//
 	char forOp[6];
 	char rs[5], rt[5], rd[5], shamt[5], target[26];
@@ -616,14 +624,14 @@ void IF(char* middle,int * Reg) {
 		//shamt는 양의 정수 0~31
 		//shamt는 $안붙음 --> Shift 함수로 넣어서 출력하기
 		strncpy(ifid.opcode, forOp, 6);
-		ifid.opcode[6] = '/0';
+		ifid.opcode[6] = '\0';
 		ifid.rd = Regi(rd);
 		ifid.rs = Regi(rs);
 		ifid.rt = Regi(rt);
 		strncpy(ifid.funct, forFunct, 6);
-		ifid.funct[6] = '/0';
+		ifid.funct[6] = '\0';
 		strncpy(ifid.shamt, shamt,5);
-		ifid.shamt[5] = '/0';
+		ifid.shamt[5] = '\0';
 
 		//ifid.shamt 이 simulator에 shift 하는 명령어 없음
 		//IF/ID set
@@ -637,7 +645,7 @@ void IF(char* middle,int * Reg) {
 				target[tari] = middle[tari + 6];
 
 			strncpy(ifid.opcode, forOp, 6);
-			ifid.opcode[6] = '/0';
+			ifid.opcode[6] = '\0';
 			ifid.targ_addr = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
 			Reg[32] = ifid.targ_addr;
 			PCWrite = 0;
@@ -655,7 +663,7 @@ void IF(char* middle,int * Reg) {
 				Imm[immi] = middle[immi + 16];
 
 			strncpy(ifid.opcode, forOp, 6);
-			ifid.opcode[6] = '/0';
+			ifid.opcode[6] = '\0';
 			ifid.rs = Regi(rs);
 			ifid.rt = Regi(rt);
 			ifid.imm = bintoDeci(Imm, 1);
@@ -679,38 +687,25 @@ int ID(int* Reg) {
 		exmem.cont_op.regWrite==1
 		exmem.reg_dst_id != 0
 		이거 두 개는 bubble 이후 hazard 어차피 다시 발생하는데, 그때 또 점검하기 때문에 여기서 굳이 안해줘도 된다. 
+	8. checksum은 ID stage에서 일어난다. 
+		- rs register의 value를 대상으로 check하는 것이기 때문에 !
+		- EX MEM HAZARD는 EX의 ALU의 재료로 regWrite값을 미리 전달해주는 거임
+		- 하지만 Bypassing은 
+	
 	*/
 	//7개 문자 그대로 카피하는 이유 -> IF 함수에서 이미 마지막 요소는 null로 초기화 했기 때문에, 그대로 옮기면 null도 들어올듯
 	
-	/*
-	char RegDst; //rt=0(i) rd=1(r)
-	char MemtoReg;
-	char RegWrite;
-	char MemRead;
-	char MemWrite;
-	char Branch;
-	char PCWrite; 전역으로 뺌
-	char IF_IDWrite; 전역으로 뺌
-	char IF_Flush;
-	char ForwardA; rs 0~3까지만 표현하면됨 0:no forward, 1:mem forward, 2:EX forward
-	char ForwardB; rt
-	*/
-
 	
+	//morecycle은 항상 ID stage에서 일어남 
 	morecycle = 0;
 
-	//6. bypassing : wb에서 저장할 값을 ID stage에서 읽어서 다음 stage로 전달해줘야할 때
-	//load든, R-type instruction이든 
-	//일반적인 경우 이후에 if문이 들어가야 함 
-	if (memwb.dst_reg_id == ifid.rs && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
-		idex.rs_val = memwb.data;
-	}
-	else if (memwb.dst_reg_id == ifid.rt && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
-		idex.rt_val = memwb.data;
-	}
+	
 
 	//7. load use data hazard
+	//id/ex FF를 조작 
+	//if/id FF는 그대로
 	//기존의 ID/EX rt id와 지금 IF/ID rs rt id가 같아야 함
+	//checksum 각각(load use data hazard / general case(including bypassing)) 해주기
 	if (idex.cont_op.MemRead == 1 && (idex.rt == ifid.rs || idex.rt == ifid.rt)) {
 		strncpy(idex.opcode, "000000\n", 7);
 		strncpy(idex.funct, "000000\n", 7);
@@ -734,9 +729,10 @@ int ID(int* Reg) {
 		idex.cont_op.ForwardB = 0;
 		PCWrite = 0;
 		IF_IDWrite = 0;
+		checksum = (checksum << 1 | checksum >> 31) ^ 0;
 		/*
 		사실 IF/ID를 갱신하지 않는 방법 = instruction을 똑같은걸 넣으면 됨 = pc value를 똑같은 것을 넣어주면 됨
-		=> 사실상 PCWrite를 0으로 해주고, 이 instruction이 ID/EX register로 넘어가지만 않으면(nop이 넘어가면) 됨 
+		=> 사실상 PCWrite를 0으로 해주고, ID/EX register에 nop을 넘겨주고, ID 함수 끝내기 
 		=> IF_IDWrite signal은 사실 무의미 함
 		다음 turn의 IF stage에서 똑같은 instruction을 읽어줄 것임
 		*/
@@ -801,11 +797,6 @@ int ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			
-			/*if (Reg[Regi(rs)] < Reg[Regi(rt)])
-				Reg[Regi(rd)] = 1;
-			else
-				Reg[Regi(rd)] = 0;*/
 			//slt
 		}
 		else if (!strncmp(ifid.funct, "100010", 6)) {
@@ -820,12 +811,9 @@ int ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-
-			//Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
 			//sub
 		}
 		else if (!strncmp(ifid.funct, "000000", 6)) {
-			//printf("sll -> nop ");
 			if ((ifid.rd==0) && (ifid.rs == 0) && (ifid.rt == 0) && !strncmp(ifid.shamt, "00000", 5)) {
 				idex.cont_op.RegDst = 0;
 				idex.cont_op.MemtoReg = 0;
@@ -843,7 +831,6 @@ int ID(int* Reg) {
 		}
 		else {
 			//unknown 0xFFFFFFFF 나와도 그냥 쭉 가세요 암거도 프린트 마세요 멈추지 마시요
-			//printf("unknown instruction\n");
 			idex.cont_op.RegDst = 0; 
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 0;
@@ -860,9 +847,7 @@ int ID(int* Reg) {
 	else {
 		//For I-type
 		idex.imm = ifid.imm;
-
 		//For J and JAL
-
 		if (!strncmp(ifid.opcode, "001000", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
@@ -875,7 +860,6 @@ int ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			//Reg[Regi(rt)] = Reg[Regi(rs)] + bintoDeci(Imm, 1);
 			//addi
 		}
 		else if (!strncmp(ifid.opcode, "001100", 6)) {
@@ -890,7 +874,6 @@ int ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			//Reg[Regi(rt)] = Reg[Regi(rs)] & (0x0000FFFF & bintoDeci(Imm, 1));
 			// 왜 0x0000FFFF랑 &를 하지...
 			//andi
 		}
@@ -919,9 +902,6 @@ int ID(int* Reg) {
 				PCWrite = 0;
 				morecycle = 1;
 			}
-			//else
-				//Reg[32] += 4;
-			//always not taken(조건이 항상 틀릴 거라고 가정)
 			//beq, offset
 		}
 		else if (!strncmp(ifid.opcode, "000101", 6)) {
@@ -1072,6 +1052,19 @@ int ID(int* Reg) {
 	idex.rd_val = Reg[ifid.rd];
 	idex.rs_val = Reg[ifid.rs];
 	idex.rt_val = Reg[ifid.rt];
+
+	//6. bypassing : wb에서 저장할 값을 ID stage에서 읽어서 다음 stage로 전달해줘야할 때
+	//load든, R-type instruction이든 
+	//일반적인 경우 이후에 이 예외처리를 if문으로 해줘야 함 
+	if (memwb.dst_reg_id == ifid.rs && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
+		idex.rs_val = memwb.data;
+	}
+	else if (memwb.dst_reg_id == ifid.rt && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
+		idex.rt_val = memwb.data;
+	}
+
+	//이 이후에 checksum 계산해주기
+	checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val;
 	return 1;
 }
 void EX(char* middle, int* Reg) {
@@ -1193,10 +1186,6 @@ void EX(char* middle, int* Reg) {
 			exmem.alu_res = idex.rs_val - idex.rt_val;
 			//sub
 		}
-		else if (!strncmp(idex.funct, "000000", 6)) {
-			//if ((idex.rd == 0) && (idex.rs == 0) && (idex.rt == 0) && !strncmp(idex.shamt, "00000", 5))
-			//sll -> nop
-		}
 	}
 	else {
 		//For I-type
@@ -1211,44 +1200,20 @@ void EX(char* middle, int* Reg) {
 			exmem.alu_res = idex.rs_val & (0x0000FFFF & idex.imm);
 			//andi
 		}
-		else if (!strncmp(idex.opcode, "000100", 6)) {
-			/*if (Reg[Regi(rs)] == Reg[Regi(rt)])
-				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
-			else
-				Reg[32] += 4;*/
-			//beq, offset
-			//rs와 rt가 같으면  pc+4+(offset*4)
-			//mem과 wb에서 할거 없음
-		}
-		else if (!strncmp(idex.opcode, "000101", 6)) {
-			/*if (Reg[Regi(rs)] != Reg[Regi(rt)])
-				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
-			else
-				Reg[32] += 4;*/
-			//bne
-			
-		}
 		else if (!strncmp(idex.opcode, "001111", 6)) {
 			exmem.alu_res = (idex.imm << 16);
 			//lui
 		}
 		else if (!strncmp(idex.opcode, "100011", 6)) {
-			//Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
-			//DMem은 정수형 배열(4 byte 단위)이기 때문에 0x4의 주소값을 갖는 메모리의 데이터(1 byte 단위)를 얻고 싶다면, DMem[0x1]에 접근해야한다. 
 			exmem.alu_res = ((idex.rs_val + idex.imm) - 0x10000000) / 4;//접근하고자 하는 memory 주소/4
 			//lw
 			//lw $2, 1073741824($10)
 		}
 		else if (!strncmp(idex.opcode, "001101", 6)) {
-			//Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
 			exmem.alu_res = idex.rs_val | (0x0000FFFF & idex.imm);
 			//ori
 		}
 		else if (!strncmp(idex.opcode, "101011", 6)) {
-			/*printf("%x\n", Reg[Regi(rt)]);
-			printf("%x\n",Reg[Regi(rs)]-0x10000000);
-			printf("%x\n",bintoDeci(Imm,1));*/
-			//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
 			exmem.alu_res= ((idex.rs_val + idex.imm) - 0x10000000) / 4;//rt에 저장되어 있던 값을 저장할 memory의 주소값 계산
 			//sw
 		}
@@ -1259,13 +1224,6 @@ void EX(char* middle, int* Reg) {
 				exmem.alu_res = 0;
 			//slti
 		}
-		/*else if (!strncmp(idex.opcode, "000010", 6)) {
-			//Reg[32] = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
-			//j
-		}
-		else {
-			Reg[32] += 4;
-		}*/
 	}
 
 	strncpy(exmem.opcode, idex.opcode, 7);
@@ -1295,19 +1253,7 @@ int MEM(char* middle, int* DMem) {
 	3. reg_dst_id MEM/WB로 넘겨주기 
 	
 	*/
-	strncpy(memwb.opcode, exmem.opcode, 7);
-	strncpy(memwb.funct, exmem.funct, 7);
-	strncpy(memwb.shamt, exmem.shamt, 6);
-
-	memwb.rd = exmem.rd;
-	memwb.rs = exmem.rs;
-	memwb.rt = exmem.rt;
-	memwb.imm = exmem.imm;
-	memwb.dst_reg_id = exmem.dst_reg_id;
-
-	memwb.rd_val = exmem.rd_val;
-	memwb.rs_val = exmem.rs_val;
-	memwb.rt_val = exmem.rt_val;
+	
 
 	/*
 	* memory 쓰는 것만 .. load store .. 끝
@@ -1369,6 +1315,21 @@ int MEM(char* middle, int* DMem) {
 		//그 이외 : ex stage에서 계산한 결과를 WB stage에서 reg에 저장하는 경우 
 		memwb.data = exmem.alu_res;
 	}
+
+	strncpy(memwb.opcode, exmem.opcode, 7);
+	strncpy(memwb.funct, exmem.funct, 7);
+	strncpy(memwb.shamt, exmem.shamt, 6);
+
+	memwb.rd = exmem.rd;
+	memwb.rs = exmem.rs;
+	memwb.rt = exmem.rt;
+	memwb.imm = exmem.imm;
+	memwb.dst_reg_id = exmem.dst_reg_id;
+
+	memwb.rd_val = exmem.rd_val;
+	memwb.rs_val = exmem.rs_val;
+	memwb.rt_val = exmem.rt_val;
+
 	memwb.cont_op = exmem.cont_op;
 }
 int WB(char* middle, int* Reg) {
@@ -1385,23 +1346,10 @@ int WB(char* middle, int* Reg) {
 	3. sw는 할거 없을 껄
 		- mem stage에서 DMEM에 저장해줬음 끝
 
+	** register 출력할 때, 
+	writeback stage가 target register를 update한 이후의 register value를 출력하랭
+	-> WB stage에서 Reg[reg_dst_id]에 저장까지 다 하기
 
-
-	typedef struct MEM_WB {
-		char opcode[7];//opcode[6]은 null로 초기화
-		char funct[7];//funct[6]은 null로 초기화
-		char shamt[6];
-		int data;//reg에 저장될 계산 결과든, mem에서 load해온 값이든 일단 MEM/WB register는 저장하고, WB stage에서 muxing
-		int dst_reg_id;
-		int rs_val;
-		int rt_val;
-		int rd_val;
-		int rs;
-		int rt;
-		int rd;
-		int imm;
-		CO cont_op;
-	}MEMWB;
 	*/
 
 
@@ -1446,7 +1394,6 @@ int WB(char* middle, int* Reg) {
 		else if (!strncmp(memwb.opcode, "100011", 6)) {
 			Reg[memwb.dst_reg_id] = memwb.data;
 			//lw
-			//lw $2, 1073741824($10)
 		}
 		else if (!strncmp(memwb.opcode, "001101", 6)) {
 			Reg[memwb.dst_reg_id] = memwb.data;
@@ -1471,18 +1418,18 @@ int main(int argc, char* argv[]) {
 	4:mem일때 시작주소
 	5:mem일때 읽을 메모리 개수(4 byte 단위)
 	*/
-	int ins_number = 1;
+	int cy_number = 1;
 	int memstart = 1;
 	int memnum = 1;
 	char mr[4];
-	if (argc < 4) { //bin 파일 이름, instruction 개수까지만 들어온 경우
-		ins_number = atoi(argv[2]);
+	if (argc < 4) { //bin 파일 이름, cycle 개수까지만 들어온 경우
+		cy_number = atoi(argv[2]);
 	}
 	else if (argc == 4 && (!strncmp(argv[3], "reg", 3))) { //?, bin, inst num, reg
-		ins_number = atoi(argv[2]);
+		cy_number = atoi(argv[2]);
 	}
 	else if (argc == 6 && (!strncmp(argv[3], "mem", 3))) {//?, bin, inst num, mem, memstart, mem num
-		ins_number = atoi(argv[2]);
+		cy_number = atoi(argv[2]);
 		memstart = strtol(argv[4], NULL, 16);
 		memnum = atoi(argv[5]);
 	}
@@ -1513,7 +1460,6 @@ int main(int argc, char* argv[]) {
 	//printf("size of last : %d\n",loop);
 	memset(last, 0xFF, loop);
 	//last 문자열 모두 0xFF로 세팅 초기화 완료 
-	//-> 인자로 요구한 것 보다 더 적은 수의 명령어가 존재하면 unknown instruction인 것이니 프로그램 종료하기 
 	/*for(int in=0;in<loop;in++)
 		printf("num : %d : %0x\n",in, last[in]);*/
 	fclose(pre);
@@ -1568,15 +1514,18 @@ int main(int argc, char* argv[]) {
 	int* DMem = (int*)malloc(sizeof(int) * 262145); //16^5 bytes = 1,048,576 -> 1,048,576/4 = 262,144 + 1(여유)
 	memset(Reg, 0, sizeof(Reg));//0으로 초기화 확인 완료
 	memset(DMem, 0xFF, 1048580);//0xFF로 초기화 확인 완료
-	/*for(int in=0;in<262145;in++)
-		printf("num : %d : %0x\n",in, DMem[in]);*/
 	char middle[33];
 	//middle은 2진수 문자열 형태인 32 bit인 0 or 1 하나를 char 하나에 저장하는 것
 	middle[32] = '\0';
 	int pc;//last의 시작점 
-	for (int out = 0; out < ins_number/*number은 input으로 받을 것임 횟수*/;) {
+
+
+
+
+	for (int out = 0; out < cy_number/*number은 input으로 받을 것임 횟수*/;) {
 		pc = Reg[32] * 8; //만약 Reg[32]에 4가 저장되어있으면 두번째 명령어를 읽으라는 소리 = last[32]를 읽어야 함
 		for (int in = 0; in < 32; in++) { //32bit씩 읽어서 middle에 저장함. (middle = 명령어 한 줄)
+			//printf("out is %d\n", out);
 			middle[in] = last[pc]; //last는 bit단위로 전체 명령어가 저장되어 있고, pc register는 byte 단위로 저장되어 있음 
 			pc++;
 			//middle은 instruction 하나씩 저장되어 있음 
@@ -1586,8 +1535,25 @@ int main(int argc, char* argv[]) {
 		out++;//cycle 수 
 
 		IF(middle, Reg);
-		ID(Reg);
-		EX(middle, Reg);
+		//if stage 내에서 ID flag = 1 로 설정해주기 
+		if (if_f == 1) {
+			id_f = 1;
+			ID(Reg);
+		}
+		
+		if (id_f == 1) {
+			ex_f = 1;
+			EX(middle, Reg);
+		}
+
+		if (ex_f == 1) {
+			mem_f = 1;
+			MEM(middle, DMem);
+		}
+
+		if (mem_f == 1) {
+			WB(middle, Reg);
+		}
 
 		if (PCWrite == 1) {
 			//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
@@ -1595,7 +1561,7 @@ int main(int argc, char* argv[]) {
 			//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
 			//Reg[32]를 증가하지 않는 경우 
 			/*
-			1. beq, bne, j -> PCWrite=0;
+			1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다 
 			2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
 			*/
 			Reg[32] += 4;
@@ -1603,34 +1569,32 @@ int main(int argc, char* argv[]) {
 
 		if (morecycle == 1) {
 			out++;
-			//beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다. --> ID stage
-			//load use data hazard의 경우, 똑같은 instruction을 IF stage가 한번 더 읽게된다. --> 자동으로 cycle 하나 더 증가
+			/*
+			beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다. 
+			--> ID stage
+			load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다. 
+			--> 자동으로 cycle 하나 더 증가
+			*/
 		}
-
-		int check = printMid(middle, Reg, DMem, last); //한줄씩 각종 함수를 사용해서 출력, 명령어에 맞춰서 Reg[32]인 pc 증가시키기 
-		if (check == 1)
-			continue;
-		else if (check == -1)
-			break;
 	}
 	free(last);
-	//printf("%d %s %x %d\n", ins_number, mr, memstart, memnum);
 
 
 	if (!strncmp(argv[3], "mem", 3)) {
 		memstart -= 0x10000000;
 		for (int mem = memstart; mem < memnum; mem++) {
-
 			printf("0x%08x\n", DMem[mem]);
 		}
 	}
 	else if (!strncmp(argv[3], "reg", 3)) {
+		printf("Checksum: 0x%08x\n", checksum);
 		for (int regg = 0; regg < 33; regg++) {
 			if (regg == 32)
 				printf("PC: 0x%08x\n", Reg[regg]);
 			else
 				printf("$%d: 0x%08x\n", regg, Reg[regg]);
 		}
+		//printf("PC in IF stage : 0x%s\n", ifid.pc_register);
 	}
 	return 0;
 }
