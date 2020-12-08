@@ -662,7 +662,7 @@ void IF(char* middle,int * Reg) {
 		}
 	}
 }
-void ID(int* Reg) {
+int ID(int* Reg) {
 	/*
 	IF/ID register에서 
 	1. opcode로 control signal 만들어서 ID/EX register에 넣기 
@@ -681,9 +681,7 @@ void ID(int* Reg) {
 		이거 두 개는 bubble 이후 hazard 어차피 다시 발생하는데, 그때 또 점검하기 때문에 여기서 굳이 안해줘도 된다. 
 	*/
 	//7개 문자 그대로 카피하는 이유 -> IF 함수에서 이미 마지막 요소는 null로 초기화 했기 때문에, 그대로 옮기면 null도 들어올듯
-	strncpy(idex.opcode, ifid.opcode, 7);
-	strncpy(idex.funct, ifid.funct, 7);
-	strncpy(idex.shamt, ifid.shamt, 6);
+	
 	/*
 	char RegDst; //rt=0(i) rd=1(r)
 	char MemtoReg;
@@ -698,12 +696,7 @@ void ID(int* Reg) {
 	char ForwardB; rt
 	*/
 
-	idex.rd = ifid.rd;
-	idex.rs = ifid.rs;
-	idex.rt = ifid.rt;
-	idex.rd_val = Reg[ifid.rd];
-	idex.rs_val = Reg[ifid.rs];
-	idex.rt_val = Reg[ifid.rt];
+	
 	morecycle = 0;
 
 	//6. bypassing : wb에서 저장할 값을 ID stage에서 읽어서 다음 stage로 전달해줘야할 때
@@ -717,7 +710,8 @@ void ID(int* Reg) {
 	}
 
 	//7. load use data hazard
-	if ((idex.rt == ifid.rs || idex.rt == ifid.rt) && idex.cont_op.MemRead == 1) {
+	//기존의 ID/EX rt id와 지금 IF/ID rs rt id가 같아야 함
+	if (idex.cont_op.MemRead == 1 && (idex.rt == ifid.rs || idex.rt == ifid.rt)) {
 		strncpy(idex.opcode, "000000\n", 7);
 		strncpy(idex.funct, "000000\n", 7);
 		strncpy(idex.shamt, "00000\n", 6);
@@ -746,7 +740,7 @@ void ID(int* Reg) {
 		=> IF_IDWrite signal은 사실 무의미 함
 		다음 turn의 IF stage에서 똑같은 instruction을 읽어줄 것임
 		*/
-	
+		return 0;
 	}
 
 
@@ -1067,7 +1061,18 @@ void ID(int* Reg) {
 			IF_IDWrite = 1;
 		}
 	}
-	//exmem.cont_op = idex.cont_op;
+
+	strncpy(idex.opcode, ifid.opcode, 7);
+	strncpy(idex.funct, ifid.funct, 7);
+	strncpy(idex.shamt, ifid.shamt, 6);
+
+	idex.rd = ifid.rd;
+	idex.rs = ifid.rs;
+	idex.rt = ifid.rt;
+	idex.rd_val = Reg[ifid.rd];
+	idex.rs_val = Reg[ifid.rs];
+	idex.rt_val = Reg[ifid.rt];
+	return 1;
 }
 void EX(char* middle, int* Reg) {
 	/*
@@ -1115,20 +1120,7 @@ void EX(char* middle, int* Reg) {
 	*/
 
 
-	strncpy(exmem.opcode,idex.opcode, 7);
-	strncpy(exmem.funct, idex.funct, 7);
-	strncpy(exmem.shamt, idex.shamt, 6);
-
-	exmem.rd = idex.rd;
-	exmem.rs = idex.rs;
-	exmem.rt = idex.rt;
-	exmem.imm = idex.imm;
 	
-	
-	exmem.rd_val = idex.rd_val;
-	exmem.rs_val = idex.rs_val;
-	exmem.rt_val = idex.rt_val;
-	//필요함 -> sw 명령어 : id에서 읽은 register 내의 값을 WB stage에서 활용해야함
 	/*
 	* 
 	* 
@@ -1275,10 +1267,25 @@ void EX(char* middle, int* Reg) {
 			Reg[32] += 4;
 		}*/
 	}
+
+	strncpy(exmem.opcode, idex.opcode, 7);
+	strncpy(exmem.funct, idex.funct, 7);
+	strncpy(exmem.shamt, idex.shamt, 6);
+
+	exmem.rd = idex.rd;
+	exmem.rs = idex.rs;
+	exmem.rt = idex.rt;
+	exmem.imm = idex.imm;
+
+
+	exmem.rd_val = idex.rd_val;
+	exmem.rs_val = idex.rs_val;
+	exmem.rt_val = idex.rt_val;
+	//필요함 -> sw 명령어 : id에서 읽은 register 내의 값을 WB stage에서 활용해야함
 	exmem.cont_op = idex.cont_op;
 }
 
-int MEM(char* middle, int* Reg, int* DMem, char* last) {
+int MEM(char* middle, int* DMem) {
 	/*
 	MEM에서 할 일
 	1. load, store 구현
@@ -1364,6 +1371,94 @@ int MEM(char* middle, int* Reg, int* DMem, char* last) {
 	}
 	memwb.cont_op = exmem.cont_op;
 }
+int WB(char* middle, int* Reg) {
+	
+	/*
+	
+	WB에서 할일
+	1. lw 처리하기 ㅇ
+		- MEM stage에서 Reg[reg_dst_id]에 저장안하고 
+		memwb.data에 load해온 값 저장해놨음
+	2. Register에 값 저장해야하는 명령어들 처리해주기 
+		- rd : adㅇd suㅇb anㅇd oㅇr sㅇlt 
+		- rt : aㅇddi aㅇndi oㅇri sㅇlti luㅇi
+	3. sw는 할거 없을 껄
+		- mem stage에서 DMEM에 저장해줬음 끝
+
+
+
+	typedef struct MEM_WB {
+		char opcode[7];//opcode[6]은 null로 초기화
+		char funct[7];//funct[6]은 null로 초기화
+		char shamt[6];
+		int data;//reg에 저장될 계산 결과든, mem에서 load해온 값이든 일단 MEM/WB register는 저장하고, WB stage에서 muxing
+		int dst_reg_id;
+		int rs_val;
+		int rt_val;
+		int rd_val;
+		int rs;
+		int rt;
+		int rd;
+		int imm;
+		CO cont_op;
+	}MEMWB;
+	*/
+
+
+	if (!strncmp(memwb.opcode, "000000", 6))
+	{//R-type ->  op rs rt rd shamt funct
+		if (!strncmp(memwb.funct, "100000", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//add
+		}
+		else if (!strncmp(memwb.funct, "100100", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//and
+		}
+		else if (!strncmp(memwb.funct, "100101", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//or
+		}
+		else if (!strncmp(memwb.funct, "101010", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//slt
+		}
+		else if (!strncmp(memwb.funct, "100010", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//sub
+		}
+	}
+	else {
+		//For I-type
+		//For J and JAL
+		if (!strncmp(memwb.opcode, "001000", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//addi
+		}
+		else if (!strncmp(memwb.opcode, "001100", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//andi
+		}
+		else if (!strncmp(memwb.opcode, "001111", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//lui
+		}
+		else if (!strncmp(memwb.opcode, "100011", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//lw
+			//lw $2, 1073741824($10)
+		}
+		else if (!strncmp(memwb.opcode, "001101", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//ori
+		}
+		else if (!strncmp(memwb.opcode, "001010", 6)) {
+			Reg[memwb.dst_reg_id] = memwb.data;
+			//slti
+		}
+	}
+}
+
 
 
 int main(int argc, char* argv[]) {
@@ -1508,7 +1603,7 @@ int main(int argc, char* argv[]) {
 
 		if (morecycle == 1) {
 			out++;
-			//beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다. 
+			//beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다. --> ID stage
 			//load use data hazard의 경우, 똑같은 instruction을 IF stage가 한번 더 읽게된다. --> 자동으로 cycle 하나 더 증가
 		}
 
