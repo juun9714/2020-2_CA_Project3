@@ -595,7 +595,7 @@ void IF(char* middle,int * Reg) {
 	일단 지금 inst mem = last 배열, data memory = DMem, register file = Reg
 	
 	*/
-	printf("im in if stage\n");
+	//printf("im in if stage\n");
 	strncpy(ifid.pc_register, middle, 32);
 	ifid.pc_register[32] = '\0';
 	//Common//
@@ -616,6 +616,8 @@ void IF(char* middle,int * Reg) {
 	if (!strncmp(forOp, "000000", 6))
 	{//R-type ->(add sub and or slt)
 	//opcode(6) rs(5) rt(5) rd(5) shamt(5) funct(6)
+		//printf("im in if stage's rtype\n");
+
 		for (int func = 0; func < 6; func++)//funct 확인
 			forFunct[func] = middle[func + 26];
 
@@ -663,6 +665,8 @@ void IF(char* middle,int * Reg) {
 			PCWrite = 0;
 		}
 		else {
+			///printf("im in if stage's I type\n");
+
 			//For I-type (addi andi ori slti) (+ lw, sw, beq, bne, lui)
 			//opcode(6) rs(5) rt(5) imm(16)
 			for (rsi = 0; rsi < 5; rsi++)//rs 확인
@@ -679,11 +683,14 @@ void IF(char* middle,int * Reg) {
 			ifid.rs = Regi(rs);
 			ifid.rt = Regi(rt);
 			ifid.imm = bintoDeci(Imm, 1);
+
+			//printf("im in if stage\nifid.rd :%d\nifid.rs :%d\nifid.rt :%d\n", ifid.rd, ifid.rs, ifid.rt);
+
 		}
 	}
 }
 int ID(int* Reg) {
-	printf("im in id stage\n");
+	//printf("im in id stage\n");
 
 	/*
 	IF/ID register에서 
@@ -758,6 +765,8 @@ int ID(int* Reg) {
 	if (!strncmp(loc_ifid.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		//id/ex register에 reg index, reg value 둘 다 넘기기
+		printf("im in id stage rtype\n");
+
 		if (!strncmp(loc_ifid.funct, "100000", 6)) {
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
@@ -860,10 +869,14 @@ int ID(int* Reg) {
 		}
 	}
 	else {
+		//printf("im in id stage i type\n");
+
 		//For I-type
 		idex.imm = loc_ifid.imm;
 		//For J and JAL
 		if (!strncmp(loc_ifid.opcode, "001000", 6)) {
+			//printf("im in id stage addi\n");
+
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -1067,22 +1080,25 @@ int ID(int* Reg) {
 	idex.rd_val = Reg[loc_ifid.rd];
 	idex.rs_val = Reg[loc_ifid.rs];
 	idex.rt_val = Reg[loc_ifid.rt];
+	//printf("im in id stage\nglobal idex.rd :%d\nidex.rs :%d\nidex.rt :%d\n", idex.rd, idex.rs, idex.rt);
+	//printf("im in id stage\nlocal ifid.rd :%d\nifid.rs :%d\nifid.rt :%d\n", loc_ifid.rd, loc_ifid.rs, loc_ifid.rt);
 
 	//6. bypassing : wb에서 저장할 값을 ID stage에서 읽어서 다음 stage로 전달해줘야할 때
 	//load든, R-type instruction이든 
 	//일반적인 경우 이후에 이 예외처리를 if문으로 해줘야 함 
 	int bypass = 0;
-	printf("memwb.dst_reg_id: %d\n", loc_memwb.dst_reg_id);
-	printf("ifid.rs: %d\n", loc_ifid.rs);
-	printf("memwb.cont_op.RegWrite: %d\n", loc_memwb.cont_op.RegWrite);
-	printf("memwb.dst_reg_id: %d\n", loc_memwb.dst_reg_id);
-	if (loc_memwb.dst_reg_id == loc_ifid.rs && loc_memwb.cont_op.RegWrite && loc_memwb.dst_reg_id != 0) {
+	if (loc_memwb.dst_reg_id == loc_ifid.rs && loc_memwb.cont_op.RegWrite ==1 && loc_memwb.dst_reg_id != 0) {
+		printf("loc_memwb.cont_op.RegWrite : %d\n", loc_memwb.cont_op.RegWrite);
+		printf("loc_memwb.dst_reg_id : %d\n", loc_memwb.dst_reg_id);
 		idex.rs_val = loc_memwb.data;
 		bypass = 1;
 	}
-	else if (loc_memwb.dst_reg_id == loc_ifid.rt && loc_memwb.cont_op.RegWrite && loc_memwb.dst_reg_id != 0) {
+	else if (loc_memwb.dst_reg_id == loc_ifid.rt && loc_memwb.cont_op.RegWrite == 1&& loc_memwb.dst_reg_id != 0) {
+		printf("loc_memwb.cont_op.RegWrite : %d\n", loc_memwb.cont_op.RegWrite);
+		printf("loc_memwb.dst_reg_id : %d\n", loc_memwb.dst_reg_id);
+
 		idex.rt_val = loc_memwb.data;
-		bypass = 1;
+		//checksum은 rs값이랑만 계산 -> bypass가 rt에서 일어나도 bypass로 인한 checksum 계산은 안함 
 	}
 
 	//이 이후에 checksum 계산해주기
@@ -1142,9 +1158,7 @@ void EX(char* middle, int* Reg) {
 			pc=pc+4;
 	}
 	*/
-	printf("im in EX stage\n");
-
-
+	//printf("im in EX stage\n");
 	
 	/*
 	* 
@@ -1221,11 +1235,15 @@ void EX(char* middle, int* Reg) {
 		}
 	}
 	else {
+		//printf("im in EX stage I type\n");
+
 		//For I-type
 		exmem.dst_reg_id = loc_idex.rt;
 		//For J and JAL
 
 		if (!strncmp(loc_idex.opcode, "001000", 6)) {
+			//printf("im in EX stage addi\n");
+
 			exmem.alu_res = loc_idex.rs_val + loc_idex.imm;
 			//addi
 		}
@@ -1274,11 +1292,14 @@ void EX(char* middle, int* Reg) {
 	exmem.rt_val = loc_idex.rt_val;
 	//필요함 -> sw 명령어 : id에서 읽은 register 내의 값을 WB stage에서 활용해야함
 	exmem.cont_op = loc_idex.cont_op;
+
+	//printf("im in ex stage\nglobal exmem.rd :%d\nexmem.rs :%d\nexmem.rt :%d\n", exmem.rd, exmem.rs, exmem.rt);
+
 }
 
 int MEM(char* middle, int* DMem) {
 
-	printf("im in mem stage\n");
+	//printf("im in mem stage\n");
 
 	/*
 	MEM에서 할 일
@@ -1367,9 +1388,12 @@ int MEM(char* middle, int* DMem) {
 	memwb.rt_val = loc_exmem.rt_val;
 
 	memwb.cont_op = loc_exmem.cont_op;
+
+	//printf("im in mem stage\nglobal memwb.rd :%d\nmemwb.rs :%d\nmemwb.rt :%d\n", memwb.rd, memwb.rs, memwb.rt);
+
 }
 int WB(char* middle, int* Reg) {
-	printf("im in wb stage\n");
+	//printf("im in wb stage\n");
 
 	/*
 	
@@ -1418,7 +1442,8 @@ int WB(char* middle, int* Reg) {
 		//For J and JAL
 		if (!strncmp(loc_memwb.opcode, "001000", 6)) {
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
-			printf("im addi in WB stage. storing data is %x\n", Reg[loc_memwb.dst_reg_id]);
+			//printf("im addi in WB stage. storing data is %x\n", Reg[loc_memwb.dst_reg_id]);
+			//printf("im in wb stage\n");
 			//addi
 		}
 		else if (!strncmp(loc_memwb.opcode, "001100", 6)) {
@@ -1613,7 +1638,6 @@ int main(int argc, char* argv[]) {
 			//if stage만 활성화
 			IF(middle, Reg);
 			id_f = 1;
-			printf("다음 기회에 if id 둘 다 실행\n");
 			if (PCWrite == 1) {
 				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
 				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
@@ -1635,6 +1659,12 @@ int main(int argc, char* argv[]) {
 				--> 자동으로 cycle 하나 더 증가
 				*/
 			}
+			//printf("global ifid.rs : %d, local ifid.rs : %d\n", ifid.rs, loc_ifid.rs);
+			//printf("global ifid.rt : %d, local ifid.rt : %d\n", ifid.rt, loc_ifid.rt);
+			loc_ifid = ifid;
+			//printf("after global ifid.rs : %d, local ifid.rs : %d\n", ifid.rs, loc_ifid.rs);
+			//printf("after global ifid.rt : %d, local ifid.rt : %d\n", ifid.rt, loc_ifid.rt);
+			printf("다음 기회에 if id 둘 다 실행\n");
 			continue;
 		}
 
@@ -1648,7 +1678,6 @@ int main(int argc, char* argv[]) {
 			ID(Reg);
 
 			ex_f = 1; 
-			printf("다음 기회에 if id ex 셋 다 실행\n");
 			if (PCWrite == 1) {
 				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
 				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
@@ -1670,6 +1699,20 @@ int main(int argc, char* argv[]) {
 				--> 자동으로 cycle 하나 더 증가
 				*/
 			}
+
+			//printf("global ifid.rs : %d, local ifid.rs : %d\n", ifid.rs, loc_ifid.rs);
+			//printf("global ifid.rt : %d, local ifid.rt : %d\n", ifid.rt, loc_ifid.rt);
+			loc_ifid = ifid;
+			//printf("global ifid.rs : %d, local ifid.rs : %d\n", ifid.rs, loc_ifid.rs);
+			//printf("global ifid.rt : %d, local ifid.rt : %d\n\n", ifid.rt, loc_ifid.rt);
+
+			//printf("global idex.rs : %d, local idex.rs : %d\n", idex.rs, loc_idex.rs);
+			//printf("global idex.rt : %d, local idex.rt : %d\n", idex.rt, loc_idex.rt);
+			loc_idex = idex;
+			//printf("after global idex.rs : %d, local idex.rs : %d\n", idex.rs, loc_idex.rs);
+			//printf("after global idex.rt : %d, local idex.rt : %d\n", idex.rt, loc_idex.rt);
+			printf("다음 기회에 if id ex 셋 다 실행\n");
+
 			continue;
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 0 && wb_f == 0) {
@@ -1682,7 +1725,6 @@ int main(int argc, char* argv[]) {
 			ID(Reg);
 			EX(middle, Reg);
 			mem_f = 1; 
-			printf("다음 기회에 if id ex mem 넷 다 실행\n");
 			if (PCWrite == 1) {
 				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
 				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
@@ -1704,6 +1746,27 @@ int main(int argc, char* argv[]) {
 				--> 자동으로 cycle 하나 더 증가
 				*/
 			}
+
+			//printf("global ifid.rs : %d, local ifid.rs : %d\n", ifid.rs, loc_ifid.rs);
+			//printf("global ifid.rt : %d, local ifid.rt : %d\n", ifid.rt, loc_ifid.rt);
+			loc_ifid = ifid;
+			//printf("global ifid.rs : %d, local ifid.rs : %d\n", ifid.rs, loc_ifid.rs);
+			//printf("global ifid.rt : %d, local ifid.rt : %d\n", ifid.rt, loc_ifid.rt);
+			
+			//printf("global idex.rs : %d, local idex.rs : %d\n", idex.rs, loc_idex.rs);
+			//printf("global idex.rt : %d, local idex.rt : %d\n", idex.rt, loc_idex.rt);
+			loc_idex = idex;
+			//printf("after global idex.rs : %d, local idex.rs : %d\n", idex.rs, loc_idex.rs);
+			//printf("after global idex.rt : %d, local idex.rt : %d\n", idex.rt, loc_idex.rt);
+			
+
+			//printf("global exmem.rs : %d, local exmem.rs : %d\n", exmem.rs, loc_exmem.rs);
+			//printf("global exmem.rt : %d, local exmem.rt : %d\n", exmem.rt, loc_exmem.rt);
+			loc_exmem = exmem;
+			//printf("after global exmem.rs : %d, local exmem.rs : %d\n", exmem.rs, loc_exmem.rs);
+			//printf("after global exmem.rt : %d, local exmem.rt : %d\n", exmem.rt, loc_exmem.rt);
+			printf("다음 기회에 if id ex mem 넷 다 실행\n");
+
 			continue;
 		}
 
@@ -1719,7 +1782,6 @@ int main(int argc, char* argv[]) {
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			wb_f = 1;
-			printf("다음 기회에 if id ex mem wb 다섯 다 실행\n");
 			if (PCWrite == 1) {
 				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
 				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
@@ -1741,6 +1803,16 @@ int main(int argc, char* argv[]) {
 				--> 자동으로 cycle 하나 더 증가
 				*/
 			}
+
+			//printf("global ifid.rs : %d, local ifid.rs : %d\n", ifid.rs, loc_ifid.rs);
+			//printf("global ifid.rt : %d, local ifid.rt : %d\n", ifid.rt, loc_ifid.rt);
+			loc_ifid = ifid;
+			//printf("global ifid.rs : %d, local ifid.rs : %d\n", ifid.rs, loc_ifid.rs);
+			//printf("global ifid.rt : %d, local ifid.rt : %d\n", ifid.rt, loc_ifid.rt);
+			loc_idex = idex;
+			loc_exmem = exmem;
+			loc_memwb = memwb;
+			printf("다음 기회에 if id ex mem wb 다섯 다 실행\n");
 			continue;
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 1) {
@@ -1755,7 +1827,6 @@ int main(int argc, char* argv[]) {
 			MEM(middle, DMem);
 			WB(middle, Reg);
 
-			printf("pipe line is fully utilized !!\n");
 			if (PCWrite == 1) {
 				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
 				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
@@ -1777,16 +1848,23 @@ int main(int argc, char* argv[]) {
 				--> 자동으로 cycle 하나 더 증가
 				*/
 			}
+
+			//printf("global ifid.rs : %d, local ifid.rs : %d\n", ifid.rs, loc_ifid.rs);
+			//printf("global ifid.rt : %d, local ifid.rt : %d\n", ifid.rt, loc_ifid.rt);
+			loc_ifid = ifid;
+
+			loc_idex = idex;
+			loc_exmem = exmem;
+			loc_memwb = memwb;
+			printf("pipe line is fully utilized !!\n");
+
 			continue;
 		}
 
 		//update local ff by global ff
 		//do stage's job with local one
 		//clock
-		loc_ifid = ifid;
-		loc_idex = idex;
-		loc_exmem = exmem;
-		loc_memwb = memwb;
+
 	}
 	free(last);
 
