@@ -169,12 +169,20 @@ typedef struct MEM_WB {
 	CO cont_op;
 }MEMWB;
 
+//for storing each stage's result
 IFID ifid; 
 IDEX idex; 
 EXMEM exmem; 
 MEMWB memwb;
+
+//for using by each stage
+//need to be updated when each cycle is done
+IFID loc_ifid;
+IDEX loc_idex;
+EXMEM loc_exmem;
+MEMWB loc_memwb;
+
 int cycle = 0;
-int given_cycle = 100;
 char PCWrite=1;
 char IF_IDWrite=1;
 int morecycle = 0;
@@ -624,6 +632,9 @@ void IF(char* middle,int * Reg) {
 			shamt[shi] = middle[shi + 21];
 		//shamt는 양의 정수 0~31
 		//shamt는 $안붙음 --> Shift 함수로 넣어서 출력하기
+
+		//global FF에 stage내의 값 저장
+		//IF의 경우 가져다쓸 값이 middle로 부터 주어지는 거니까 local 값 쓸게 없음 
 		strncpy(ifid.opcode, forOp, 6);
 		ifid.opcode[6] = '\0';
 		ifid.rd = Regi(rd);
@@ -744,10 +755,10 @@ int ID(int* Reg) {
 	}
 
 
-	if (!strncmp(ifid.opcode, "000000", 6))
+	if (!strncmp(loc_ifid.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		//id/ex register에 reg index, reg value 둘 다 넘기기
-		if (!strncmp(ifid.funct, "100000", 6)) {
+		if (!strncmp(loc_ifid.funct, "100000", 6)) {
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -761,7 +772,7 @@ int ID(int* Reg) {
 			IF_IDWrite = 1;
 			//add
 		}
-		else if (!strncmp(ifid.funct, "100100", 6)) {
+		else if (!strncmp(loc_ifid.funct, "100100", 6)) {
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -775,7 +786,7 @@ int ID(int* Reg) {
 			IF_IDWrite = 1;
 			//and
 		}
-		else if (!strncmp(ifid.funct, "100101", 6)) {
+		else if (!strncmp(loc_ifid.funct, "100101", 6)) {
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -789,7 +800,7 @@ int ID(int* Reg) {
 			IF_IDWrite = 1;
 			//or
 		}
-		else if (!strncmp(ifid.funct, "101010", 6)) {
+		else if (!strncmp(loc_ifid.funct, "101010", 6)) {
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -803,7 +814,7 @@ int ID(int* Reg) {
 			IF_IDWrite = 1;
 			//slt
 		}
-		else if (!strncmp(ifid.funct, "100010", 6)) {
+		else if (!strncmp(loc_ifid.funct, "100010", 6)) {
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -817,8 +828,8 @@ int ID(int* Reg) {
 			IF_IDWrite = 1;
 			//sub
 		}
-		else if (!strncmp(ifid.funct, "000000", 6)) {
-			if ((ifid.rd==0) && (ifid.rs == 0) && (ifid.rt == 0) && !strncmp(ifid.shamt, "00000", 5)) {
+		else if (!strncmp(loc_ifid.funct, "000000", 6)) {
+			if ((loc_ifid.rd==0) && (loc_ifid.rs == 0) && (loc_ifid.rt == 0) && !strncmp(loc_ifid.shamt, "00000", 5)) {
 				idex.cont_op.RegDst = 0;
 				idex.cont_op.MemtoReg = 0;
 				idex.cont_op.RegWrite = 0;
@@ -850,9 +861,9 @@ int ID(int* Reg) {
 	}
 	else {
 		//For I-type
-		idex.imm = ifid.imm;
+		idex.imm = loc_ifid.imm;
 		//For J and JAL
-		if (!strncmp(ifid.opcode, "001000", 6)) {
+		if (!strncmp(loc_ifid.opcode, "001000", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -866,7 +877,7 @@ int ID(int* Reg) {
 			IF_IDWrite = 1;
 			//addi
 		}
-		else if (!strncmp(ifid.opcode, "001100", 6)) {
+		else if (!strncmp(loc_ifid.opcode, "001100", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -881,7 +892,7 @@ int ID(int* Reg) {
 			// 왜 0x0000FFFF랑 &를 하지...
 			//andi
 		}
-		else if (!strncmp(ifid.opcode, "000100", 6)) {
+		else if (!strncmp(loc_ifid.opcode, "000100", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 0;
@@ -894,7 +905,7 @@ int ID(int* Reg) {
 			IF_IDWrite = 1;
 
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
-			if (Reg[ifid.rs] == Reg[ifid.rt]) {
+			if (Reg[loc_ifid.rs] == Reg[loc_ifid.rt]) {
 				char bubble[33] = "00000000000000000000000000000000\0";
 				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
 				//misprediction in beq --> make IF nop
@@ -902,13 +913,13 @@ int ID(int* Reg) {
 				//기존 IF 이후에, ID 실행, ID 내에서 IF 0x0으로 초기화 하는 것임 
 				IF(bubble, Reg);//ifid가 nop을 실행한 것처럼 만들기 = id ex mem wb에서 아무 일도 일어나지 않는다.
 				//초기화 한 후에, pc값 제대로 다시 하기 
-				Reg[32] = Reg[32] + 4 + (4 * ifid.imm);
+				Reg[32] = Reg[32] + 4 + (4 * loc_ifid.imm);
 				PCWrite = 0;
 				morecycle = 1;
 			}
 			//beq, offset
 		}
-		else if (!strncmp(ifid.opcode, "000101", 6)) {
+		else if (!strncmp(loc_ifid.opcode, "000101", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 0;
@@ -921,7 +932,7 @@ int ID(int* Reg) {
 			IF_IDWrite = 1;
 
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
-			if (Reg[ifid.rs] != Reg[ifid.rt]) {
+			if (Reg[loc_ifid.rs] != Reg[loc_ifid.rt]) {
 				char bubble[33] = "00000000000000000000000000000000\0";
 				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
 				//misprediction in beq --> make IF nop
@@ -929,7 +940,7 @@ int ID(int* Reg) {
 				//기존 IF 이후에, ID 실행, ID 내에서 IF 0x0으로 초기화 하는 것임 
 				IF(bubble, Reg);//ifid가 nop을 실행한 것처럼 만들기 = id ex mem wb에서 아무 일도 일어나지 않는다.
 				//초기화 한 후에, pc값 제대로 다시 하기 
-				Reg[32] = Reg[32] + 4 + (4 * ifid.imm);
+				Reg[32] = Reg[32] + 4 + (4 * loc_ifid.imm);
 				PCWrite = 0;
 				morecycle = 1;
 			}
@@ -938,7 +949,7 @@ int ID(int* Reg) {
 			//always not taken(조건이 항상 틀릴 거라고 가정)
 			//bne, offset
 		}
-		else if (!strncmp(ifid.opcode, "001111", 6)) {
+		else if (!strncmp(loc_ifid.opcode, "001111", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -953,7 +964,7 @@ int ID(int* Reg) {
 			//Reg[idex.rt] = (bintoDeci(Imm, 1) << 16); -> EX stage
 			//lui
 		}
-		else if (!strncmp(ifid.opcode, "100011", 6)) {
+		else if (!strncmp(loc_ifid.opcode, "100011", 6)) {
 			//lw
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 1;
@@ -968,7 +979,7 @@ int ID(int* Reg) {
 			IF_IDWrite = 1;
 			//Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
 		}
-		else if (!strncmp(ifid.opcode, "001101", 6)) {
+		else if (!strncmp(loc_ifid.opcode, "001101", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -983,7 +994,7 @@ int ID(int* Reg) {
 			//Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
 			//ori
 		}
-		else if (!strncmp(ifid.opcode, "101011", 6)) {
+		else if (!strncmp(loc_ifid.opcode, "101011", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 0;
@@ -998,7 +1009,7 @@ int ID(int* Reg) {
 			//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
 			//sw
 		}
-		else if (!strncmp(ifid.opcode, "001010", 6)) {
+		else if (!strncmp(loc_ifid.opcode, "001010", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -1016,7 +1027,7 @@ int ID(int* Reg) {
 				Reg[Regi(rt)] = 0;*/
 			//slti
 		}
-		else if (!strncmp(ifid.opcode, "000010", 6)) {
+		else if (!strncmp(loc_ifid.opcode, "000010", 6)) {
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 0;
@@ -1046,36 +1057,37 @@ int ID(int* Reg) {
 		}
 	}
 
-	strncpy(idex.opcode, ifid.opcode, 7);
-	strncpy(idex.funct, ifid.funct, 7);
-	strncpy(idex.shamt, ifid.shamt, 6);
+	strncpy(idex.opcode, loc_ifid.opcode, 7);
+	strncpy(idex.funct, loc_ifid.funct, 7);
+	strncpy(idex.shamt, loc_ifid.shamt, 6);
 
-	idex.rd = ifid.rd;
-	idex.rs = ifid.rs;
-	idex.rt = ifid.rt;
-	idex.rd_val = Reg[ifid.rd];
-	idex.rs_val = Reg[ifid.rs];
-	idex.rt_val = Reg[ifid.rt];
+	idex.rd = loc_ifid.rd;
+	idex.rs = loc_ifid.rs;
+	idex.rt = loc_ifid.rt;
+	idex.rd_val = Reg[loc_ifid.rd];
+	idex.rs_val = Reg[loc_ifid.rs];
+	idex.rt_val = Reg[loc_ifid.rt];
 
 	//6. bypassing : wb에서 저장할 값을 ID stage에서 읽어서 다음 stage로 전달해줘야할 때
 	//load든, R-type instruction이든 
 	//일반적인 경우 이후에 이 예외처리를 if문으로 해줘야 함 
 	int bypass = 0;
-	printf("memwb.dst_reg_id: %d\n", memwb.dst_reg_id);
-	printf("ifid.rs: %d\n", ifid.rs);
-	printf("memwb.cont_op.RegWrite: %d\n", memwb.cont_op.RegWrite);
-	printf("memwb.dst_reg_id: %d\n", memwb.dst_reg_id);
-	if (memwb.dst_reg_id == ifid.rs && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
-		idex.rs_val = memwb.data;
+	printf("memwb.dst_reg_id: %d\n", loc_memwb.dst_reg_id);
+	printf("ifid.rs: %d\n", loc_ifid.rs);
+	printf("memwb.cont_op.RegWrite: %d\n", loc_memwb.cont_op.RegWrite);
+	printf("memwb.dst_reg_id: %d\n", loc_memwb.dst_reg_id);
+	if (loc_memwb.dst_reg_id == loc_ifid.rs && loc_memwb.cont_op.RegWrite && loc_memwb.dst_reg_id != 0) {
+		idex.rs_val = loc_memwb.data;
 		bypass = 1;
 	}
-	else if (memwb.dst_reg_id == ifid.rt && memwb.cont_op.RegWrite && memwb.dst_reg_id != 0) {
-		idex.rt_val = memwb.data;
+	else if (loc_memwb.dst_reg_id == loc_ifid.rt && loc_memwb.cont_op.RegWrite && loc_memwb.dst_reg_id != 0) {
+		idex.rt_val = loc_memwb.data;
+		bypass = 1;
 	}
 
 	//이 이후에 checksum 계산해주기
 	if(bypass==1)
-		checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val;
+		checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val; //새로읽은 rs값(global에 저장한)에 대해서 checksum 계산
 	else {
 		/*printf("not bypass, ifid.rs is %d and Reg[ifid.rs] = %x\n", ifid.rs, Reg[ifid.rs]);
 		printf("check sum : %x\n", checksum);
@@ -1084,8 +1096,6 @@ int ID(int* Reg) {
 		checksum = (checksum << 1 | checksum >> 31) ^ Reg[ifid.rs];
 		/*printf("check sum : %x\n", checksum);*/
 	}
-
-
 	return 1;
 }
 void EX(char* middle, int* Reg) {
@@ -1156,91 +1166,92 @@ void EX(char* middle, int* Reg) {
 
 
 	*/
-	if (exmem.cont_op.RegWrite == 1 && exmem.dst_reg_id != 0 && (exmem.dst_reg_id == idex.rs)){
+	if (loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rs)){
 		//EX-Hzd of rs -> forwardA = 2
 		idex.cont_op.ForwardA = 2;
-		idex.rs_val = exmem.alu_res;
+		loc_idex.rs_val = loc_exmem.alu_res;
 	}
-	if (exmem.cont_op.RegWrite == 1 && exmem.dst_reg_id != 0 && (exmem.dst_reg_id == idex.rt)) {
+	if (loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rt)) {
 		//EX-Hzd of rt -> forwardB = 2
 		idex.cont_op.ForwardB = 2;
-		idex.rt_val = exmem.alu_res;
+		loc_idex.rt_val = loc_exmem.alu_res;
 	}
-	if (memwb.cont_op.RegWrite == 1 && memwb.dst_reg_id != 0 && (memwb.dst_reg_id == idex.rs)
-		&& !(exmem.cont_op.RegWrite == 1 && exmem.dst_reg_id != 0 && (exmem.dst_reg_id == idex.rs))) {
+	if (loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0 && (loc_memwb.dst_reg_id == loc_idex.rs)
+		&& !(loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rs))) {
 		//MEM-Hzd of rs without EX-Hzd of rs -> forwardA = 1
 		idex.cont_op.ForwardA = 1;
-		idex.rs_val = memwb.data;
+		loc_idex.rs_val = loc_memwb.data;
+		//지금 ex stage에서 rs_val을 당장 계산의 재료로 쓰는 거니까 loc_idex.rs_val에 바뀐 값을 저장해줘야함
 	}
-	if (memwb.cont_op.RegWrite == 1 && memwb.dst_reg_id != 0 && (memwb.dst_reg_id == idex.rt)
-		&&!(exmem.cont_op.RegWrite == 1 && exmem.dst_reg_id != 0 && (exmem.dst_reg_id == idex.rt))) {
+	if (loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0 && (loc_memwb.dst_reg_id == loc_idex.rt)
+		&&!(loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rt))) {
 		//MEM-Hzd of rt without EX-Hzd of rt -> forwardB = 1
 		idex.cont_op.ForwardB = 1;
-		idex.rt_val = memwb.data;
+		loc_idex.rt_val = loc_memwb.data;
 	}
 
 
 
-	if (!strncmp(idex.opcode, "000000", 6))
+	if (!strncmp(loc_idex.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct -> rd is dst regiter id
-		exmem.dst_reg_id = idex.rd;
+		exmem.dst_reg_id = loc_idex.rd;
 
-		if (!strncmp(idex.funct, "100000", 6)) {
-			exmem.alu_res = idex.rs_val + idex.rt_val;
+		if (!strncmp(loc_idex.funct, "100000", 6)) {
+			exmem.alu_res = loc_idex.rs_val + loc_idex.rt_val;
 			//add
 		}
-		else if (!strncmp(idex.funct, "100100", 6)) {
-			exmem.alu_res = (idex.rs_val & idex.rt_val);
+		else if (!strncmp(loc_idex.funct, "100100", 6)) {
+			exmem.alu_res = (loc_idex.rs_val & loc_idex.rt_val);
 			//and
 		}
-		else if (!strncmp(idex.funct, "100101", 6)) {
-			exmem.alu_res = (idex.rs_val | idex.rt_val);
+		else if (!strncmp(loc_idex.funct, "100101", 6)) {
+			exmem.alu_res = (loc_idex.rs_val | loc_idex.rt_val);
 			//or
 		}
-		else if (!strncmp(idex.funct, "101010", 6)) {
-			if (idex.rs_val < idex.rt_val)
+		else if (!strncmp(loc_idex.funct, "101010", 6)) {
+			if (loc_idex.rs_val < loc_idex.rt_val)
 				exmem.alu_res = 1;
 			else
 				exmem.alu_res = 0;
 			//slt
 		}
-		else if (!strncmp(idex.funct, "100010", 6)) {
-			exmem.alu_res = idex.rs_val - idex.rt_val;
+		else if (!strncmp(loc_idex.funct, "100010", 6)) {
+			exmem.alu_res = loc_idex.rs_val - loc_idex.rt_val;
 			//sub
 		}
 	}
 	else {
 		//For I-type
-		exmem.dst_reg_id = idex.rt;
+		exmem.dst_reg_id = loc_idex.rt;
 		//For J and JAL
 
-		if (!strncmp(idex.opcode, "001000", 6)) {
-			exmem.alu_res = idex.rs_val + idex.imm;
+		if (!strncmp(loc_idex.opcode, "001000", 6)) {
+			exmem.alu_res = loc_idex.rs_val + loc_idex.imm;
 			//addi
 		}
-		else if (!strncmp(idex.opcode, "001100", 6)) {
-			exmem.alu_res = idex.rs_val & (0x0000FFFF & idex.imm);
+		else if (!strncmp(loc_idex.opcode, "001100", 6)) {
+			exmem.alu_res = loc_idex.rs_val & (0x0000FFFF & loc_idex.imm);
 			//andi
 		}
-		else if (!strncmp(idex.opcode, "001111", 6)) {
-			exmem.alu_res = (idex.imm << 16);
+		else if (!strncmp(loc_idex.opcode, "001111", 6)) {
+			exmem.alu_res = (loc_idex.imm << 16);
 			//lui
 		}
-		else if (!strncmp(idex.opcode, "100011", 6)) {
-			exmem.alu_res = ((idex.rs_val + idex.imm) - 0x10000000) / 4;//접근하고자 하는 memory 주소/4
+		else if (!strncmp(loc_idex.opcode, "100011", 6)) {
+			exmem.alu_res = ((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4;//접근하고자 하는 memory 주소/4
 			//lw
 			//lw $2, 1073741824($10)
 		}
-		else if (!strncmp(idex.opcode, "001101", 6)) {
-			exmem.alu_res = idex.rs_val | (0x0000FFFF & idex.imm);
+		else if (!strncmp(loc_idex.opcode, "001101", 6)) {
+			exmem.alu_res = loc_idex.rs_val | (0x0000FFFF & loc_idex.imm);
 			//ori
 		}
-		else if (!strncmp(idex.opcode, "101011", 6)) {
-			exmem.alu_res= ((idex.rs_val + idex.imm) - 0x10000000) / 4;//rt에 저장되어 있던 값을 저장할 memory의 주소값 계산
+		else if (!strncmp(loc_idex.opcode, "101011", 6)) {
+			exmem.alu_res= ((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4;//rt에 저장되어 있던 값을 저장할 memory의 주소값 계산
 			//sw
 		}
-		else if (!strncmp(idex.opcode, "001010", 6)) {
-			if (idex.rs_val < idex.imm)
+		else if (!strncmp(loc_idex.opcode, "001010", 6)) {
+			if (loc_idex.rs_val < loc_idex.imm)
 				exmem.alu_res = 1;
 			else
 				exmem.alu_res = 0;
@@ -1248,21 +1259,21 @@ void EX(char* middle, int* Reg) {
 		}
 	}
 
-	strncpy(exmem.opcode, idex.opcode, 7);
-	strncpy(exmem.funct, idex.funct, 7);
-	strncpy(exmem.shamt, idex.shamt, 6);
+	strncpy(exmem.opcode, loc_idex.opcode, 7);
+	strncpy(exmem.funct, loc_idex.funct, 7);
+	strncpy(exmem.shamt, loc_idex.shamt, 6);
 
-	exmem.rd = idex.rd;
-	exmem.rs = idex.rs;
-	exmem.rt = idex.rt;
-	exmem.imm = idex.imm;
+	exmem.rd = loc_idex.rd;
+	exmem.rs = loc_idex.rs;
+	exmem.rt = loc_idex.rt;
+	exmem.imm = loc_idex.imm;
 
 
-	exmem.rd_val = idex.rd_val;
-	exmem.rs_val = idex.rs_val;
-	exmem.rt_val = idex.rt_val;
+	exmem.rd_val = loc_idex.rd_val;
+	exmem.rs_val = loc_idex.rs_val;
+	exmem.rt_val = loc_idex.rt_val;
 	//필요함 -> sw 명령어 : id에서 읽은 register 내의 값을 WB stage에서 활용해야함
-	exmem.cont_op = idex.cont_op;
+	exmem.cont_op = loc_idex.cont_op;
 }
 
 int MEM(char* middle, int* DMem) {
@@ -1319,8 +1330,8 @@ int MEM(char* middle, int* DMem) {
 
 
 	//load, store의 경우, alu_res에 mem 주소가 들어있음 
-	if (!strncmp(exmem.opcode, "100011", 6)) {
-		memwb.data = DMem[exmem.alu_res];
+	if (!strncmp(loc_exmem.opcode, "100011", 6)) {
+		memwb.data = DMem[loc_exmem.alu_res];
 		/*
 		WB stage에서 Reg[memwb.reg_dst_id]=memwb.data; 해주면 됨 
 		mem에서도 reg에 저장하면 안됨,data로 옮겨놨다가, WB에서 register에 저장해야함
@@ -1331,31 +1342,31 @@ int MEM(char* middle, int* DMem) {
 		lw $2, 1073741824($10)
 		*/
 	}
-	else if (!strncmp(exmem.opcode, "101011", 6)) {
-		DMem[exmem.alu_res] = exmem.rt_val;
+	else if (!strncmp(loc_exmem.opcode, "101011", 6)) {
+		DMem[exmem.alu_res] = loc_exmem.rt_val;
 		//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
 		//sw
 	}
 	else {
 		//그 이외 : ex stage에서 계산한 결과를 WB stage에서 reg에 저장하는 경우 
-		memwb.data = exmem.alu_res;
+		memwb.data = loc_exmem.alu_res;
 	}
 
-	strncpy(memwb.opcode, exmem.opcode, 7);
-	strncpy(memwb.funct, exmem.funct, 7);
-	strncpy(memwb.shamt, exmem.shamt, 6);
+	strncpy(memwb.opcode, loc_exmem.opcode, 7);
+	strncpy(memwb.funct, loc_exmem.funct, 7);
+	strncpy(memwb.shamt, loc_exmem.shamt, 6);
 
-	memwb.rd = exmem.rd;
-	memwb.rs = exmem.rs;
-	memwb.rt = exmem.rt;
-	memwb.imm = exmem.imm;
-	memwb.dst_reg_id = exmem.dst_reg_id;
+	memwb.rd = loc_exmem.rd;
+	memwb.rs = loc_exmem.rs;
+	memwb.rt = loc_exmem.rt;
+	memwb.imm = loc_exmem.imm;
+	memwb.dst_reg_id = loc_exmem.dst_reg_id;
 
-	memwb.rd_val = exmem.rd_val;
-	memwb.rs_val = exmem.rs_val;
-	memwb.rt_val = exmem.rt_val;
+	memwb.rd_val = loc_exmem.rd_val;
+	memwb.rs_val = loc_exmem.rs_val;
+	memwb.rt_val = loc_exmem.rt_val;
 
-	memwb.cont_op = exmem.cont_op;
+	memwb.cont_op = loc_exmem.cont_op;
 }
 int WB(char* middle, int* Reg) {
 	printf("im in wb stage\n");
@@ -1379,55 +1390,55 @@ int WB(char* middle, int* Reg) {
 	*/
 
 
-	if (!strncmp(memwb.opcode, "000000", 6))
+	if (!strncmp(loc_memwb.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
-		if (!strncmp(memwb.funct, "100000", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		if (!strncmp(loc_memwb.funct, "100000", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//add
 		}
-		else if (!strncmp(memwb.funct, "100100", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		else if (!strncmp(loc_memwb.funct, "100100", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//and
 		}
-		else if (!strncmp(memwb.funct, "100101", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		else if (!strncmp(loc_memwb.funct, "100101", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//or
 		}
-		else if (!strncmp(memwb.funct, "101010", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		else if (!strncmp(loc_memwb.funct, "101010", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//slt
 		}
-		else if (!strncmp(memwb.funct, "100010", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		else if (!strncmp(loc_memwb.funct, "100010", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//sub
 		}
 	}
 	else {
 		//For I-type
 		//For J and JAL
-		if (!strncmp(memwb.opcode, "001000", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
-			printf("im addi in WB stage. storing data is %x\n", Reg[memwb.dst_reg_id]);
+		if (!strncmp(loc_memwb.opcode, "001000", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
+			printf("im addi in WB stage. storing data is %x\n", Reg[loc_memwb.dst_reg_id]);
 			//addi
 		}
-		else if (!strncmp(memwb.opcode, "001100", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		else if (!strncmp(loc_memwb.opcode, "001100", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//andi
 		}
-		else if (!strncmp(memwb.opcode, "001111", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		else if (!strncmp(loc_memwb.opcode, "001111", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//lui
 		}
-		else if (!strncmp(memwb.opcode, "100011", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		else if (!strncmp(loc_memwb.opcode, "100011", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//lw
 		}
-		else if (!strncmp(memwb.opcode, "001101", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		else if (!strncmp(loc_memwb.opcode, "001101", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//ori
 		}
-		else if (!strncmp(memwb.opcode, "001010", 6)) {
-			Reg[memwb.dst_reg_id] = memwb.data;
+		else if (!strncmp(loc_memwb.opcode, "001010", 6)) {
+			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//slti
 		}
 	}
@@ -1633,8 +1644,8 @@ int main(int argc, char* argv[]) {
 			
 			역순으로 stage를 진행해야, 이전 cycle에 저장해놓은 FF가 활용되는 거임
 			*/
-			ID(Reg);
 			IF(middle, Reg);
+			ID(Reg);
 
 			ex_f = 1; 
 			printf("다음 기회에 if id ex 셋 다 실행\n");
@@ -1667,9 +1678,9 @@ int main(int argc, char* argv[]) {
 
 			역순으로 stage를 진행해야, 이전 cycle에 저장해놓은 FF가 활용되는 거임
 			*/
-			EX(middle, Reg);
-			ID(Reg);
 			IF(middle, Reg);
+			ID(Reg);
+			EX(middle, Reg);
 			mem_f = 1; 
 			printf("다음 기회에 if id ex mem 넷 다 실행\n");
 			if (PCWrite == 1) {
@@ -1703,10 +1714,10 @@ int main(int argc, char* argv[]) {
 
 			역순으로 stage를 진행해야, 이전 cycle에 저장해놓은 FF가 활용되는 거임
 			*/
-			MEM(middle, DMem);
-			EX(middle, Reg);
-			ID(Reg);
 			IF(middle, Reg);
+			ID(Reg);
+			EX(middle, Reg);
+			MEM(middle, DMem);
 			wb_f = 1;
 			printf("다음 기회에 if id ex mem wb 다섯 다 실행\n");
 			if (PCWrite == 1) {
@@ -1738,11 +1749,12 @@ int main(int argc, char* argv[]) {
 			역순으로 stage를 진행해야, 이전 cycle에 저장해놓은 FF가 활용됨
 			근데 이러니까 bypassing 등에 문제가 생김 
 			*/
-			WB(middle, Reg);
-			MEM(middle, DMem);
-			EX(middle, Reg);
-			ID(Reg);
 			IF(middle, Reg);
+			ID(Reg);
+			EX(middle, Reg);
+			MEM(middle, DMem);
+			WB(middle, Reg);
+
 			printf("pipe line is fully utilized !!\n");
 			if (PCWrite == 1) {
 				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
@@ -1767,6 +1779,14 @@ int main(int argc, char* argv[]) {
 			}
 			continue;
 		}
+
+		//update local ff by global ff
+		//do stage's job with local one
+		//clock
+		loc_ifid = ifid;
+		loc_idex = idex;
+		loc_exmem = exmem;
+		loc_memwb = memwb;
 	}
 	free(last);
 
