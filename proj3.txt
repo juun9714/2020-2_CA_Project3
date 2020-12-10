@@ -1,0 +1,33 @@
+test case 1 2 3은 완료
+
+1. bypassing 작동
+
+2. bypassing 작동
+--> pdf에 $7 오류 맞음 0x00010000 이 정답 
+
+3. register forwarding
+--> EX, MEM HAZARD 둘 다 작동 
+
+4. load use data hazard 
+--> cycle 12에서 checksum 달라짐 
+
+5. branch prediction
+--> lw에서 seg fault
+
+6. branch + forwarding
+--> lw에서 seg fault
+
+7. branch + load use data hazard
+--> lw에서 seg fault
+
+8. jump
+--> cycle 7에서 PC 값이 달라진다.
+
+
+scp
+원격 -> 로컬
+scp -P 1398 2016311410@swye.skku.edu:/home/swe3005/2020f/proj2/proj2_1.bin C:\Users\JunheeKwon\Desktop
+
+로컬 -> 원격
+scp -P 1398 C:\Users\JunheeKwon\Desktop\Project3\Project3\main.c 2016311410@swye.skku.edu:/home/2016311410/test2
+
