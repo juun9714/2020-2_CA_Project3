@@ -1309,7 +1309,6 @@ void EX(char* middle, int* Reg) {
 			pc=pc+4;
 	}
 	*/
-	//printf("im in EX stage\n");
 	
 	/*
 	* 
@@ -1331,6 +1330,22 @@ void EX(char* middle, int* Reg) {
 
 
 	*/
+
+	//MEM hzd 먼저하고, EX hzd 있으면 다시 초기화 
+
+	if (loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0 && (loc_memwb.dst_reg_id == loc_idex.rs)
+		&& !(loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rs))) {
+		//MEM-Hzd of rs without EX-Hzd of rs -> forwardA = 1
+		idex.cont_op.ForwardA = 1;
+		loc_idex.rs_val = loc_memwb.data;
+		//지금 ex stage에서 rs_val을 당장 계산의 재료로 쓰는 거니까 loc_idex.rs_val에 바뀐 값을 저장해줘야함
+	}
+	if (loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0 && (loc_memwb.dst_reg_id == loc_idex.rt)
+		&& !(loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rt))) {
+		//MEM-Hzd of rt without EX-Hzd of rt -> forwardB = 1
+		idex.cont_op.ForwardB = 1;
+		loc_idex.rt_val = loc_memwb.data;
+	}
 	if (loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rs)){
 		//EX-Hzd of rs -> forwardA = 2
 		idex.cont_op.ForwardA = 2;
@@ -1341,19 +1356,7 @@ void EX(char* middle, int* Reg) {
 		idex.cont_op.ForwardB = 2;
 		loc_idex.rt_val = loc_exmem.alu_res;
 	}
-	if (loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0 && (loc_memwb.dst_reg_id == loc_idex.rs)
-		&& !(loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rs))) {
-		//MEM-Hzd of rs without EX-Hzd of rs -> forwardA = 1
-		idex.cont_op.ForwardA = 1;
-		loc_idex.rs_val = loc_memwb.data;
-		//지금 ex stage에서 rs_val을 당장 계산의 재료로 쓰는 거니까 loc_idex.rs_val에 바뀐 값을 저장해줘야함
-	}
-	if (loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0 && (loc_memwb.dst_reg_id == loc_idex.rt)
-		&&!(loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rt))) {
-		//MEM-Hzd of rt without EX-Hzd of rt -> forwardB = 1
-		idex.cont_op.ForwardB = 1;
-		loc_idex.rt_val = loc_memwb.data;
-	}
+	
 
 
 
