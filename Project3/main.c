@@ -588,6 +588,7 @@ int printMid(char* middle, int* Reg, int* DMem, char* last) {
 }
 
 void IF(char* middle,int * Reg) {
+	//printf("if stage\n");
 	/*
 	32 bit string이 들어옴 by middle
 
@@ -691,7 +692,7 @@ void IF(char* middle,int * Reg) {
 int ID(int* Reg) {
 	branch_bypass = 0;
 	//printf("im in id stage\n");
-
+	IF_IDWrite = 1;
 	strncpy(idex.opcode, loc_ifid.opcode, 7);
 	strncpy(idex.funct, loc_ifid.funct, 7);
 	strncpy(idex.shamt, loc_ifid.shamt, 6);
@@ -725,7 +726,6 @@ int ID(int* Reg) {
 	
 	*/
 	//7개 문자 그대로 카피하는 이유 -> IF 함수에서 이미 마지막 요소는 null로 초기화 했기 때문에, 그대로 옮기면 null도 들어올듯
-	morecycle = 0;
 	//7. load use data hazard
 	//id/ex FF를 조작 
 	//if/id FF는 그대로
@@ -773,8 +773,8 @@ int ID(int* Reg) {
 		IF_IDWrite = 0;
 		printf("load use data hazard occurred in ID stage\n");
 		return 10; //10 means load hzd
-
-	}else if (!strncmp(loc_ifid.opcode, "000000", 6))
+	}
+	else if (!strncmp(loc_ifid.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		//id/ex register에 reg index, reg value 둘 다 넘기기
 
@@ -1343,31 +1343,34 @@ void EX(char* middle, int* Reg) {
 	}
 	if (loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rt)) {
 		//EX-Hzd of rt -> forwardB = 2
+		//printf("ex hzd of rt  exmem.dst : %d  idex.rt : %d\n", loc_exmem.dst_reg_id, loc_idex.rt);
 		idex.cont_op.ForwardB = 2;
 		loc_idex.rt_val = loc_exmem.alu_res;
+		//printf("ex hzd of rt  loc_idex.rt_val : 0x%08x   loc_exmem.alu_res : 0x%08x\n", loc_idex.rt_val, loc_exmem.alu_res);
 	}
 	
-
 
 
 	if (!strncmp(loc_idex.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct -> rd is dst regiter id
 		exmem.dst_reg_id = loc_idex.rd;
-
 		if (!strncmp(loc_idex.funct, "100000", 6)) {
-			printf("exmem.alu_res in ex stage : 0x%08x \n", exmem.alu_res);
+			printf("add in ex\n");
 			exmem.alu_res = loc_idex.rs_val + loc_idex.rt_val;
 			//add
 		}
 		else if (!strncmp(loc_idex.funct, "100100", 6)) {
+			printf("and in ex\n");
 			exmem.alu_res = (loc_idex.rs_val & loc_idex.rt_val);
 			//and
 		}
 		else if (!strncmp(loc_idex.funct, "100101", 6)) {
+			printf("or in ex\n");
 			exmem.alu_res = (loc_idex.rs_val | loc_idex.rt_val);
 			//or
 		}
 		else if (!strncmp(loc_idex.funct, "101010", 6)) {
+			printf("slt in ex\n");
 			if (loc_idex.rs_val < loc_idex.rt_val)
 				exmem.alu_res = 1;
 			else
@@ -1375,48 +1378,57 @@ void EX(char* middle, int* Reg) {
 			//slt
 		}
 		else if (!strncmp(loc_idex.funct, "100010", 6)) {
+			printf("sub in ex\n");
 			exmem.alu_res = loc_idex.rs_val - loc_idex.rt_val;
 			//sub
 		}
 		else {
-			printf("nop sll in ex stage\n");
+			printf("nop in ex\n");
 		}
 	}
 	else {
 		//printf("im in EX stage I type\n");
-
 		//For I-type
 		exmem.dst_reg_id = loc_idex.rt;
 		//For J and JAL
 
 		if (!strncmp(loc_idex.opcode, "001000", 6)) {
-			//printf("im in EX stage addi\n");
-
+			//printf("add instruction : loc_idex.rt_val : 0x%08x \n", loc_idex.rt_val);
+			printf("addi in ex\n");
 			exmem.alu_res = loc_idex.rs_val + loc_idex.imm;
+			//printf("add result exmem.alu_res : 0x%08x\n", exmem.alu_res);
+
 			//addi
 		}
 		else if (!strncmp(loc_idex.opcode, "001100", 6)) {
+			printf("andi in ex\n");
 			exmem.alu_res = loc_idex.rs_val & (0x0000FFFF & loc_idex.imm);
 			//andi
 		}
 		else if (!strncmp(loc_idex.opcode, "001111", 6)) {
+			printf("lui in ex\n");
 			exmem.alu_res = (loc_idex.imm << 16);
 			//lui
 		}
 		else if (!strncmp(loc_idex.opcode, "100011", 6)) {
+			printf("lw in ex\n");
 			exmem.alu_res = ((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4;//접근하고자 하는 memory 주소/4
 			//lw
 			//lw $2, 1073741824($10)
 		}
 		else if (!strncmp(loc_idex.opcode, "001101", 6)) {
+			printf("ori in ex\n");
 			exmem.alu_res = loc_idex.rs_val | (0x0000FFFF & loc_idex.imm);
 			//ori
 		}
 		else if (!strncmp(loc_idex.opcode, "101011", 6)) {
 			exmem.alu_res= ((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4;//rt에 저장되어 있던 값을 저장할 memory의 주소값 계산
+			printf("sw in ex\nsw gets address to store the value --> 0x%08x\n", exmem.alu_res);
+
 			//sw
 		}
 		else if (!strncmp(loc_idex.opcode, "001010", 6)) {
+			printf("slti in ex\n");
 			if (loc_idex.rs_val < loc_idex.imm)
 				exmem.alu_res = 1;
 			else
@@ -1440,9 +1452,6 @@ void EX(char* middle, int* Reg) {
 	exmem.rt_val = loc_idex.rt_val;
 	//필요함 -> sw 명령어 : id에서 읽은 register 내의 값을 WB stage에서 활용해야함
 	exmem.cont_op = loc_idex.cont_op;
-
-	//printf("im in ex stage\nglobal exmem.rd :%d\nexmem.rs :%d\nexmem.rt :%d\n", exmem.rd, exmem.rs, exmem.rt);
-
 }
 
 int MEM(char* middle, int* DMem) {
@@ -1500,7 +1509,10 @@ int MEM(char* middle, int* DMem) {
 
 	//load, store의 경우, alu_res에 mem 주소가 들어있음 
 	if (!strncmp(loc_exmem.opcode, "100011", 6)) {
+		printf("lw in mem stage\n");
 		memwb.data = DMem[loc_exmem.alu_res];
+		printf("lw is loading value 0x%08x from memory address 0x%08x\n", DMem[loc_exmem.alu_res], loc_exmem.alu_res);
+		printf("loaded value 0x%08x from mem\n", memwb.data);
 		/*
 		WB stage에서 Reg[memwb.reg_dst_id]=memwb.data; 해주면 됨 
 		mem에서도 reg에 저장하면 안됨,data로 옮겨놨다가, WB에서 register에 저장해야함
@@ -1512,15 +1524,18 @@ int MEM(char* middle, int* DMem) {
 		*/
 	}
 	else if (!strncmp(loc_exmem.opcode, "101011", 6)) {
-		DMem[exmem.alu_res] = loc_exmem.rt_val;
+		printf("sw in mem stage\n");
+		DMem[loc_exmem.alu_res] = loc_exmem.rt_val;
+		printf("sw is storing value 0x%08x in memory address 0x%08x\n", DMem[loc_exmem.alu_res],loc_exmem.alu_res);
 		//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
 		//sw
 	}
-	else if (!strncmp(loc_exmem.opcode, "000000", 6)) {
-		printf("maybe nop of sll in mem stage\n");
+	else if (!strncmp(loc_exmem.opcode, "000000", 6)&& !strncmp(loc_exmem.funct, "000000", 6)&& !strncmp(loc_exmem.shamt, "00000", 5)) {
+		printf("nothing to do in mem stage\n");
 	}
 	else {
 		//그 이외 : ex stage에서 계산한 결과를 WB stage에서 reg에 저장하는 경우 
+		printf("store alu result in data maybe r-type inst\n");
 		memwb.data = loc_exmem.alu_res;
 	}
 
@@ -1544,7 +1559,6 @@ int MEM(char* middle, int* DMem) {
 
 }
 int WB(char* middle, int* Reg) {
-	//printf("im in wb stage\n");
 
 	/*
 	
@@ -1568,23 +1582,31 @@ int WB(char* middle, int* Reg) {
 	if (!strncmp(loc_memwb.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		if (!strncmp(loc_memwb.funct, "100000", 6)) {
-			printf("wb add result 0x%08x\n", loc_memwb.data);
+			printf("add in wb\n");
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//add
 		}
 		else if (!strncmp(loc_memwb.funct, "100100", 6)) {
+			printf("and in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//and
 		}
 		else if (!strncmp(loc_memwb.funct, "100101", 6)) {
+			printf("or in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//or
 		}
 		else if (!strncmp(loc_memwb.funct, "101010", 6)) {
+			printf("slt in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//slt
 		}
 		else if (!strncmp(loc_memwb.funct, "100010", 6)) {
+			printf("sub in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//sub
 		}
@@ -1596,28 +1618,38 @@ int WB(char* middle, int* Reg) {
 		//For I-type
 		//For J and JAL
 		if (!strncmp(loc_memwb.opcode, "001000", 6)) {
+			printf("addi in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
-			//printf("im addi in WB stage. storing data is %x\n", Reg[loc_memwb.dst_reg_id]);
-			//printf("im in wb stage\n");
 			//addi
 		}
 		else if (!strncmp(loc_memwb.opcode, "001100", 6)) {
+			printf("andi in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//andi
 		}
 		else if (!strncmp(loc_memwb.opcode, "001111", 6)) {
+			printf("lui in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//lui
 		}
 		else if (!strncmp(loc_memwb.opcode, "100011", 6)) {
+			printf("lw in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//lw
 		}
 		else if (!strncmp(loc_memwb.opcode, "001101", 6)) {
+			printf("ori in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//ori
 		}
 		else if (!strncmp(loc_memwb.opcode, "001010", 6)) {
+			printf("slti in wb\n");
+
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//slti
 		}
@@ -1777,8 +1809,7 @@ int main(int argc, char* argv[]) {
 
 		if (if_f = 1 && id_f == 1 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
 			IF(middle, Reg);
-			int idreturn=ID(Reg);
-
+			ID(Reg);
 
 			ex_f = 1; 
 			if (PCWrite == 1) {
@@ -1792,7 +1823,7 @@ int main(int argc, char* argv[]) {
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 0 && wb_f == 0) {
 			IF(middle, Reg);
-			int idreturn = ID(Reg);
+			ID(Reg);
 			EX(middle, Reg);
 			mem_f = 1; 
 			if (PCWrite == 1) {
@@ -1809,7 +1840,7 @@ int main(int argc, char* argv[]) {
 
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 0) {
 			IF(middle, Reg);
-			int idreturn = ID(Reg);
+			ID(Reg);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			wb_f = 1;
@@ -1826,30 +1857,21 @@ int main(int argc, char* argv[]) {
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 1) {
 			IF(middle, Reg);
-			int idreturn = ID(Reg);
+			ID(Reg);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			WB(middle, Reg);
 
-			if (PCWrite == 1) {
+			if (PCWrite == 1) 
 				Reg[32] += 4;
-			}
-
-			if (IF_IDWrite == 1) {
+			if (IF_IDWrite == 1) 
 				loc_ifid = ifid;
-				//printf("ifid is updated\n");
-			}
-			else
-				//printf("ifid is not updated\n");
+
 			loc_idex = idex;
 			loc_exmem = exmem;
 			loc_memwb = memwb;
 			continue;
 		}
-
-		//update local ff by global ff
-		//do stage's job with local one
-		//clock
 
 	}
 	free(last);
