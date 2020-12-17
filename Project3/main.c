@@ -995,6 +995,7 @@ int ID(int* Reg) {
 			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
 				rs = loc_memwb.data;
 				idex.rs_val = rs;
+				printf("this is beq's bypass rs\nbypassed rs value of branch inst is 0x%08x\n", rs);
 				checksum = (checksum << 1 | checksum >> 31) ^ rs;
 				//bypass한 값을 ex로 넘겨줄지 안넘겨줄지 모르니 일단 여기서 rs값으로 checksum한다 
 				//그리고 안넘겨 주고 nop을 넘겨주게 된다면, 아래 if문 안에서 알아서 nop으로 다시 세팅한다. 
@@ -1002,6 +1003,7 @@ int ID(int* Reg) {
 			}
 			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)){
 				rt = loc_memwb.data;
+				printf("this is beq's bypass rt\nbypassed rt value of branch inst is 0x%08x\n", rt);
 				idex.rt_val = rt;
 				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
 				branch_bypass = 1;
@@ -1010,6 +1012,8 @@ int ID(int* Reg) {
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
 			//always not taken 
 			if (rs == rt) { //if taken
+				printf("beq's condition is taken\n");
+
 				char bubble[33] = "000000000000000000000000000000000";
 				bubble[32] = '\0';
 				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
@@ -1021,7 +1025,8 @@ int ID(int* Reg) {
 				IF(bubble, Reg);
 				//IF(nop) -> global FF를 all 0으로 저장 cycle 끝나고 local=global 하면 if/id의 nop이 ID에서 실행될 것임
 				//초기화 한 후에, pc값 제대로 다시 하기 
-				Reg[32] = Reg[32] + 4 + (4 * loc_ifid.imm);
+				//원래 Reg[32] = Reg[32] + 4 + (4 * loc_ifid.imm) <== 이 식이었는데, +4를 빼니까 답이 맞아졌음 
+				Reg[32] = Reg[32] + (4 * loc_ifid.imm);
 				PCWrite = 0;
 				//beq는 넘어가 봤자 ex mem wb에서 아무것도 안하는딩
 			}
@@ -1047,7 +1052,8 @@ int ID(int* Reg) {
 			need 1 bubble
 			*/
 
-			if (loc_exmem.cont_op.MemRead && ((loc_exmem.dst_reg_id == loc_ifid.rs) || (loc_exmem.dst_reg_id == loc_ifid.rt))) {
+			if ((loc_exmem.cont_op.MemRead && ((loc_exmem.dst_reg_id == loc_ifid.rs) || (loc_exmem.dst_reg_id == loc_ifid.rt))) ||
+				(loc_idex.cont_op.MemRead && ((loc_idex.rt == loc_ifid.rs) || (loc_idex.rt == loc_ifid.rt)))) {
 				checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];//ID stage 바로 종료, checksum 이 안에서 계산 해줘야함 
 				strncpy(idex.opcode, "000000\0", 7);
 				strncpy(idex.funct, "000000\0", 7);
@@ -1072,7 +1078,7 @@ int ID(int* Reg) {
 				idex.cont_op.ForwardB = 0;
 				PCWrite = 0;
 				IF_IDWrite = 0;
-				printf("lw hzd with branch occurred in ID and mem stage\n");
+				printf("lw hzd with branch occurred in ID and mem stage -> 1 or 2 bubble\n");
 				return 10; //10 means load hzd
 			}
 
@@ -1087,22 +1093,29 @@ int ID(int* Reg) {
 			*/
 			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
 				rs = loc_memwb.data;
+				printf("this is bne's bypass rs\nbypassed rs value of branch inst is 0x%08x\n", rs);
 				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
 				branch_bypass = 1;
 			}
 			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)) {
 				rt = loc_memwb.data;
-				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
+				printf("this is bne's bypass rt\nbypassed rt value of branch inst is 0x%08x\n", rt);
+				//checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
 				branch_bypass = 1;
 			}
 
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
 			if (rs != rt) {
+				printf("bne's condition is taken\n");
 				char bubble[33] = "000000000000000000000000000000000";
 				bubble[32] = '\0';
 				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
 				IF(bubble, Reg);
-				Reg[32] = Reg[32] + 4 + (4 * loc_ifid.imm);
+				// id ex mem wb가 nop으로 초기화 됨, 근데 branch된 pc값이 반영이 안되네
+				//원래 Reg[32] = Reg[32] + 4 + (4 * loc_ifid.imm) <== 이 식이었는데, +4를 빼니까 답이 맞아졌음 
+				Reg[32] = Reg[32] + (4 * loc_ifid.imm);
+				printf("loc_ifid.imm is 0x%08x\n", loc_ifid.imm);
+				printf("branched pc value is 0x%08x\n", Reg[32]);
 				PCWrite = 0;
 			}
 			//always not taken(조건이 항상 틀릴 거라고 가정)
@@ -1434,6 +1447,9 @@ void EX(char* middle, int* Reg) {
 			else
 				exmem.alu_res = 0;
 			//slti
+		}
+		else {
+			printf("branch? in ex\n");
 		}
 	}
 
@@ -1861,9 +1877,11 @@ int main(int argc, char* argv[]) {
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			WB(middle, Reg);
-
-			if (PCWrite == 1) 
+			printf("pcwrite value %d\n", PCWrite);
+			if (PCWrite == 1) {
+				printf("pc= pc+4\n");
 				Reg[32] += 4;
+			}
 			if (IF_IDWrite == 1) 
 				loc_ifid = ifid;
 
