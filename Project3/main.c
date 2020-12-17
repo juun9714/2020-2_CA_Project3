@@ -689,7 +689,7 @@ void IF(char* middle,int * Reg) {
 		}
 	}
 }
-int ID(int* Reg) {
+int ID(int* Reg, int* DMem) {
 	branch_bypass = 0;
 	//printf("im in id stage\n");
 	IF_IDWrite = 1;
@@ -945,6 +945,11 @@ int ID(int* Reg) {
 			rt = Reg[loc_ifid.rt];
 
 			/*
+			 
+			<lw nop nop branch>
+			data hazard인 경우 beq내에서 bypass why? ID 내에서 직접 bypassing한 값을 재료로 계산을 해야하기 때문
+			ID stage 마지막의 branch if문에서 branch_bypass=1이면, bypass 확인 안하기
+
 			<lw nop branch>
 			exmem.reg-dst == ifid.rs or rt ,exmem.cont-op.memread == 1
 			need 1 bubble 
@@ -956,36 +961,20 @@ int ID(int* Reg) {
 
 			--> 두 경우 모두 이 if에 걸리게 만들자  
 			*/
-			if ((loc_exmem.cont_op.MemRead && ((loc_exmem.dst_reg_id == loc_ifid.rs) || (loc_exmem.dst_reg_id == loc_ifid.rt))) ||
-				(loc_idex.cont_op.MemRead && ((loc_idex.rt == loc_ifid.rs) || (loc_idex.rt == loc_ifid.rt)))) {
-				checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];//ID stage 바로 종료, checksum 이 안에서 계산 해줘야함 
-				strncpy(idex.opcode, "000000\0", 7);
-				strncpy(idex.funct, "000000\0", 7);
-				strncpy(idex.shamt, "00000\0", 6);
-				//printf("idex.opcode : %s\nidex.funct : %s\nidex.funct : %s\n", idex.opcode, idex.funct, idex.shamt);
-				idex.imm = 0;
-				idex.rd = 0;
-				idex.rt = 0;
-				idex.rs = 0;
-				idex.rd_val = 0;
-				idex.rs_val = 0;
-				idex.rt_val = 0;
-				//nop's control option
-				idex.cont_op.RegDst = 0;
-				idex.cont_op.MemtoReg = 0;
-				idex.cont_op.RegWrite = 0;
-				idex.cont_op.MemRead = 0;
-				idex.cont_op.MemWrite = 0;
-				idex.cont_op.Branch = 0;
-				idex.cont_op.IF_Flush = 0;
-				idex.cont_op.ForwardA = 0;
-				idex.cont_op.ForwardB = 0;
-				PCWrite = 0;
-				IF_IDWrite = 0;
-				printf("lw hzd with branch occurred in ID and mem stage -> 1 or 2 bubble\n");
-				return 10; //10 means load hzd
+			if (loc_exmem.cont_op.MemRead) {
+				checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];
+				if(loc_exmem.dst_reg_id == loc_ifid.rs)
+					rs=DMem[loc_exmem.alu_res];
+				else if(loc_exmem.dst_reg_id == loc_ifid.rt)
+					rt= DMem[loc_exmem.alu_res];
 			}
-
+			else if (loc_idex.cont_op.MemRead) {
+				checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];
+				if (loc_idex.rt == loc_ifid.rs)
+					rs = DMem[((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4];
+				else if (loc_idex.rt == loc_ifid.rt)
+					rt = DMem[((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4];
+			}
 
 			/*
 			<lw nop nop branch>
@@ -1825,7 +1814,7 @@ int main(int argc, char* argv[]) {
 
 		if (if_f = 1 && id_f == 1 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
 			IF(middle, Reg);
-			ID(Reg);
+			ID(Reg, DMem);
 
 			ex_f = 1; 
 			if (PCWrite == 1) {
@@ -1839,7 +1828,7 @@ int main(int argc, char* argv[]) {
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 0 && wb_f == 0) {
 			IF(middle, Reg);
-			ID(Reg);
+			ID(Reg, DMem);
 			EX(middle, Reg);
 			mem_f = 1; 
 			if (PCWrite == 1) {
@@ -1856,7 +1845,7 @@ int main(int argc, char* argv[]) {
 
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 0) {
 			IF(middle, Reg);
-			ID(Reg);
+			ID(Reg, DMem);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			wb_f = 1;
@@ -1873,7 +1862,7 @@ int main(int argc, char* argv[]) {
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 1) {
 			IF(middle, Reg);
-			ID(Reg);
+			ID(Reg, DMem);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			WB(middle, Reg);
