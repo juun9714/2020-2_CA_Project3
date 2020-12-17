@@ -10,6 +10,14 @@ test case 1 2 3은 완료
 
 4. load use data hazard 
 --> cycle 12에서 checksum 달라짐 
+--> 최종 checksum은 맞는데 register값들이 달라 (12 cycle 부터 달라짐
+--> 흠흠흠그리고 정답은 pc값이 커졌다가 다시 작아지는데, 
+--> 내꺼는 그냥 pc값을 안늘리는뎅
+
+--> 아마 ex hazard랑 mem hazard랑 충돌 일어나서 register값이 달라지는 것 같음 
+	1. lui $3이 addi $3 재료로 쓰이고
+	2. 2번째 addi의 dst인 $4가 add의 $4 재료로 쓰인다.  ㅅㅂ 개판
+--> hazard 중복 확인 하기  
 
 5. branch prediction
 --> lw에서 seg fault

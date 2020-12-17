@@ -185,6 +185,7 @@ MEMWB loc_memwb;
 int cycle = 0;
 char PCWrite=1;
 char IF_IDWrite=1;
+int branch_bypass = 0;
 int morecycle = 0;
 unsigned int checksum = 0;
 int if_f = 0;
@@ -598,6 +599,7 @@ void IF(char* middle,int * Reg) {
 	//printf("im in if stage and this instruction is 0x%s\n",middle);
 	strncpy(ifid.pc_register, middle, 32);
 	ifid.pc_register[32] = '\0';
+	IF_IDWrite = 1;
 	//Common//
 	char forOp[6];
 	char rs[5], rt[5], rd[5], shamt[5], target[26];
@@ -690,8 +692,19 @@ void IF(char* middle,int * Reg) {
 	}
 }
 int ID(int* Reg) {
+	branch_bypass = 0;
 	//printf("im in id stage\n");
 
+	strncpy(idex.opcode, loc_ifid.opcode, 7);
+	strncpy(idex.funct, loc_ifid.funct, 7);
+	strncpy(idex.shamt, loc_ifid.shamt, 6);
+
+	idex.rd = loc_ifid.rd;
+	idex.rs = loc_ifid.rs;
+	idex.rt = loc_ifid.rt;
+	idex.rd_val = Reg[loc_ifid.rd];
+	idex.rs_val = Reg[loc_ifid.rs];
+	idex.rt_val = Reg[loc_ifid.rt];
 	/*
 	IF/ID register에서 
 	1. opcode로 control signal 만들어서 ID/EX register에 넣기 
@@ -715,28 +728,33 @@ int ID(int* Reg) {
 	
 	*/
 	//7개 문자 그대로 카피하는 이유 -> IF 함수에서 이미 마지막 요소는 null로 초기화 했기 때문에, 그대로 옮기면 null도 들어올듯
-	
-	
-	//morecycle은 항상 ID stage에서 일어남 
 	morecycle = 0;
-
-	
-
 	//7. load use data hazard
 	//id/ex FF를 조작 
 	//if/id FF는 그대로
 	//기존의 ID/EX rt id와 지금 IF/ID rs rt id가 같아야 함
 	//checksum 각각(load use data hazard / general case(including bypassing)) 해주기
-	if (idex.cont_op.MemRead == 1 && ((idex.rt == ifid.rs) || (idex.rt == ifid.rt))) {
+	if (loc_idex.cont_op.MemRead == 1 && ((loc_idex.rt == loc_ifid.rs) || (loc_idex.rt == loc_ifid.rt))) {
 		/*
 		1. ex mem wb가 작동하지 않게  
 			--> idex register를 nop으로 만들기 
+			--> 다음 cycle에 ex mem wb는 nop을 실행하고 
 		2. IF/ID FF 그대로 냅두기 
-		
+			--> cycle이 끝났을 때, 방금 IF에서 update한 값으로 loc_ifid를 갱신하지 않기 
+			--> load use data hzd에서만 IF_IDWrite =0; (전역이다)
+			--> main에서 FF 갱신할 때, if문으로 조건처리 해줄까?
+			--> 다음 cycle에 id는 똑같은 걸 실행해라 
+
+		3. IF가 새로운 명령 읽지 않게 하기
+			--> PC를 증가시키지 않으면 됨 
+			--> PCWrite는 항상 1이고, beq bne j load use data hazard일 때만 0
+
 		*/
-		strncpy(idex.opcode, "000000\n", 7);
-		strncpy(idex.funct, "000000\n", 7);
-		strncpy(idex.shamt, "00000\n", 6);
+		checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];//ID stage 바로 종료, checksum 이 안에서 계산 해줘야함 
+		strncpy(idex.opcode, "000000\0", 7);
+		strncpy(idex.funct, "000000\0", 7);
+		strncpy(idex.shamt, "00000\0",6);
+		printf("idex.opcode : %s\nidex.funct : %s\nidex.funct : %s\n", idex.opcode, idex.funct, idex.shamt);
 		idex.imm = 0;
 		idex.rd = 0;
 		idex.rt = 0;
@@ -756,19 +774,10 @@ int ID(int* Reg) {
 		idex.cont_op.ForwardB = 0;
 		PCWrite = 0;
 		IF_IDWrite = 0;
-		printf("checksum in nop\n");
-		checksum = (checksum << 1 | checksum >> 31) ^ 0;
-		/*
-		사실 IF/ID를 갱신하지 않는 방법 = instruction을 똑같은걸 넣으면 됨 = pc value를 똑같은 것을 넣어주면 됨
-		=> 사실상 PCWrite를 0으로 해주고, ID/EX register에 nop을 넘겨주고, ID 함수 끝내기 
-		=> IF_IDWrite signal은 사실 무의미 함
-		다음 turn의 IF stage에서 똑같은 instruction을 읽어줄 것임
-		*/
-		return 0;
-	}
+		printf("load use data hazard occurred in ID stage\n");
+		return 10; //10 means load hzd
 
-
-	if (!strncmp(loc_ifid.opcode, "000000", 6))
+	}else if (!strncmp(loc_ifid.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		//id/ex register에 reg index, reg value 둘 다 넘기기
 		printf("im in id stage rtype\n");
@@ -886,10 +895,9 @@ int ID(int* Reg) {
 			printf("unknown in r type\n");
 
 		}
+		return 5; //r type
 	}
 	else {
-		//printf("im in id stage i type\n");
-
 		//For I-type
 		idex.imm = loc_ifid.imm;
 		//For J and JAL
@@ -939,20 +947,90 @@ int ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			IF_IDWrite = 1;
 
+			int rs = 0, rt = 0;
+			rs = Reg[loc_ifid.rs];
+			rt = Reg[loc_ifid.rt];
+
+			/*
+			<lw nop branch>
+			exmem.reg-dst == ifid.rs or rt ,exmem.cont-op.memread == 1
+			need 1 bubble 
+
+			<lw branch>
+			memread 활용
+			idex.memread==1,  idex.rt==ifid.rs or rt
+			need 2 bubble
+
+			--> 두 경우 모두 이 if에 걸리게 만들자  
+			*/
+			if ((loc_exmem.cont_op.MemRead && ((loc_exmem.dst_reg_id == loc_ifid.rs) || (loc_exmem.dst_reg_id == loc_ifid.rt))) ||
+				(loc_idex.cont_op.MemRead && ((loc_idex.rt == loc_ifid.rs) || (loc_idex.rt == loc_ifid.rt)))) {
+				checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];//ID stage 바로 종료, checksum 이 안에서 계산 해줘야함 
+				strncpy(idex.opcode, "000000\0", 7);
+				strncpy(idex.funct, "000000\0", 7);
+				strncpy(idex.shamt, "00000\0", 6);
+				//printf("idex.opcode : %s\nidex.funct : %s\nidex.funct : %s\n", idex.opcode, idex.funct, idex.shamt);
+				idex.imm = 0;
+				idex.rd = 0;
+				idex.rt = 0;
+				idex.rs = 0;
+				idex.rd_val = 0;
+				idex.rs_val = 0;
+				idex.rt_val = 0;
+				//nop's control option
+				idex.cont_op.RegDst = 0;
+				idex.cont_op.MemtoReg = 0;
+				idex.cont_op.RegWrite = 0;
+				idex.cont_op.MemRead = 0;
+				idex.cont_op.MemWrite = 0;
+				idex.cont_op.Branch = 0;
+				idex.cont_op.IF_Flush = 0;
+				idex.cont_op.ForwardA = 0;
+				idex.cont_op.ForwardB = 0;
+				PCWrite = 0;
+				IF_IDWrite = 0;
+				printf("lw hzd with branch occurred in ID and mem stage -> 1 or 2 bubble\n");
+				return 10; //10 means load hzd
+			}
+
+
+			/*
+			<lw nop nop branch>
+			data hazard인 경우 beq내에서 bypass why? ID 내에서 직접 bypassing한 값을 재료로 계산을 해야하기 때문
+			ID stage 마지막의 branch if문에서 branch_bypass=1이면, bypass 확인 안하기
+			*/
+			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
+				rs = loc_memwb.data;
+				idex.rs_val = rs;
+				checksum = (checksum << 1 | checksum >> 31) ^ rs;
+				//bypass한 값을 ex로 넘겨줄지 안넘겨줄지 모르니 일단 여기서 rs값으로 checksum한다 
+				//그리고 안넘겨 주고 nop을 넘겨주게 된다면, 아래 if문 안에서 알아서 nop으로 다시 세팅한다. 
+				branch_bypass = 1;
+			}
+			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)){
+				rt = loc_memwb.data;
+				idex.rt_val = rt;
+				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
+				branch_bypass = 1;
+			}
+
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
 			//always not taken 
-			if (Reg[loc_ifid.rs] == Reg[loc_ifid.rt]) { //if taken
+			if (rs == rt) { //if taken
 				char bubble[33] = "000000000000000000000000000000000";
 				bubble[32] = '\0';
 				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
-				//misprediction in beq --> make IF nop
-				//순서 꼭곡 중요 !!!!!!!
-				//기존 IF 이후에, ID 실행, ID 내에서 IF 0x0으로 초기화 하는 것임 
-				IF(bubble, Reg);//IF(nop) -> global FF를 all 0으로 저장 cycle 끝나고 local=global 하면 if/id의 nop이 ID에서 실행될 것임
+				/*
+				misprediction in beq --> make IF nop
+				순서 꼭곡 중요 !!!!!!!
+				기존 IF 이후에, ID 실행, ID 내에서 IF 0x0으로 초기화 하는 것임 
+				*/
+				IF(bubble, Reg);
+				//IF(nop) -> global FF를 all 0으로 저장 cycle 끝나고 local=global 하면 if/id의 nop이 ID에서 실행될 것임
 				//초기화 한 후에, pc값 제대로 다시 하기 
 				Reg[32] = Reg[32] + 4 + (4 * loc_ifid.imm);
 				PCWrite = 0;
-				//morecycle = 1;
+				//beq는 넘어가 봤자 ex mem wb에서 아무것도 안하는딩
 			}
 			//beq, offset
 		}
@@ -970,22 +1048,69 @@ int ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			IF_IDWrite = 1;
 
+			/*
+			<lw nop branch>
+			exmem.reg-dst == ifid.rs or rt ,exmem.cont-op.memread == 1
+			need 1 bubble
+			*/
+
+			if (loc_exmem.cont_op.MemRead && ((loc_exmem.dst_reg_id == loc_ifid.rs) || (loc_exmem.dst_reg_id == loc_ifid.rt))) {
+				checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];//ID stage 바로 종료, checksum 이 안에서 계산 해줘야함 
+				strncpy(idex.opcode, "000000\0", 7);
+				strncpy(idex.funct, "000000\0", 7);
+				strncpy(idex.shamt, "00000\0", 6);
+				//printf("idex.opcode : %s\nidex.funct : %s\nidex.funct : %s\n", idex.opcode, idex.funct, idex.shamt);
+				idex.imm = 0;
+				idex.rd = 0;
+				idex.rt = 0;
+				idex.rs = 0;
+				idex.rd_val = 0;
+				idex.rs_val = 0;
+				idex.rt_val = 0;
+				//nop's control option
+				idex.cont_op.RegDst = 0;
+				idex.cont_op.MemtoReg = 0;
+				idex.cont_op.RegWrite = 0;
+				idex.cont_op.MemRead = 0;
+				idex.cont_op.MemWrite = 0;
+				idex.cont_op.Branch = 0;
+				idex.cont_op.IF_Flush = 0;
+				idex.cont_op.ForwardA = 0;
+				idex.cont_op.ForwardB = 0;
+				PCWrite = 0;
+				IF_IDWrite = 0;
+				printf("lw hzd with branch occurred in ID and mem stage\n");
+				return 10; //10 means load hzd
+			}
+
+			int rs = 0, rt = 0;
+			rs = Reg[loc_ifid.rs];
+			rt = Reg[loc_ifid.rt];
+
+			/*
+			<lw nop nop branch>
+			data hazard인 경우 beq내에서 bypass why? ID 내에서 직접 bypassing한 값을 재료로 계산을 해야하기 때문
+			ID stage 마지막의 branch if문에서 branch_bypass=1이면, bypass 확인 안하기
+			*/
+			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
+				rs = loc_memwb.data;
+				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
+				branch_bypass = 1;
+			}
+			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)) {
+				rt = loc_memwb.data;
+				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
+				branch_bypass = 1;
+			}
+
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
-			if (Reg[loc_ifid.rs] != Reg[loc_ifid.rt]) {
+			if (rs != rt) {
 				char bubble[33] = "000000000000000000000000000000000";
 				bubble[32] = '\0';
 				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
-				//misprediction in beq --> make IF nop
-				//순서 꼭곡 중요 !!!!!!!
-				//기존 IF 이후에, ID 실행, ID 내에서 IF 0x0으로 초기화 하는 것임 
-				IF(bubble, Reg);//if가 nop을 실행한 것처럼 만들기 = id ex mem wb에서 아무 일도 일어나지 않는다.
-				//초기화 한 후에, pc값 제대로 다시 하기 
-				//원래 PC값은 한 cycle 끝날때 갱신해주는데, branch fail, load-use data hazard -> bubble 필요할 때 PC 값 함수 안에서 바꿔준다. 
-				//-> PC 함수 밖에서 다시 하지 말라고, 전역변수 PCWrite 0 으로 초기화해주기 
-				//그리고 nop이 실행되면서, 그냥 cycle이 하나 소모되는 것임(말이 bubble인 거지 cycle은 nop으로써 정상적으로 돌아가는 것) 
+				IF(bubble, Reg);
 				Reg[32] = Reg[32] + 4 + (4 * loc_ifid.imm);
 				PCWrite = 0;
-				//morecycle = 1;
 			}
 			//always not taken(조건이 항상 틀릴 거라고 가정)
 			//bne, offset
@@ -1110,61 +1235,33 @@ int ID(int* Reg) {
 			printf("unknown in i type\n");
 
 		}
+		return 1;//i type
 	}
 
-	strncpy(idex.opcode, loc_ifid.opcode, 7);
-	strncpy(idex.funct, loc_ifid.funct, 7);
-	strncpy(idex.shamt, loc_ifid.shamt, 6);
-
-	idex.rd = loc_ifid.rd;
-	idex.rs = loc_ifid.rs;
-	idex.rt = loc_ifid.rt;
-	idex.rd_val = Reg[loc_ifid.rd];
-	idex.rs_val = Reg[loc_ifid.rs];
-	idex.rt_val = Reg[loc_ifid.rt];
-	//printf("im in id stage\nglobal idex.rd :%d\nidex.rs :%d\nidex.rt :%d\n", idex.rd, idex.rs, idex.rt);
-	//printf("im in id stage\nlocal ifid.rd :%d\nifid.rs :%d\nifid.rt :%d\n", loc_ifid.rd, loc_ifid.rs, loc_ifid.rt);
 
 	//6. bypassing : wb에서 저장할 값을 ID stage에서 읽어서 다음 stage로 전달해줘야할 때
 	//load든, R-type instruction이든 
 	//일반적인 경우 이후에 이 예외처리를 if문으로 해줘야 함 
 	int bypass = 0;
-	if ((loc_memwb.dst_reg_id == loc_ifid.rs) && loc_memwb.cont_op.RegWrite ==1 && loc_memwb.dst_reg_id != 0) {
-		//printf("RS loc_memwb.cont_op.RegWrite : %d\n", loc_memwb.cont_op.RegWrite);
-		//printf("RS loc_memwb.dst_reg_id : %d\n", loc_memwb.dst_reg_id);
+	//branch에서 bypass가 일어나지 않았어야 함 
+	if (branch_bypass==0 && (loc_memwb.dst_reg_id == loc_ifid.rs) && loc_memwb.cont_op.RegWrite ==1 && loc_memwb.dst_reg_id != 0) {
 		idex.rs_val = loc_memwb.data;
 		bypass = 1;
 	}
-	else if ((loc_memwb.dst_reg_id == loc_ifid.rt) && loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0) {
-		//printf("RT loc_memwb.cont_op.RegWrite : %d\n", loc_memwb.cont_op.RegWrite);
-		//printf("RT loc_memwb.dst_reg_id : %d\n", loc_memwb.dst_reg_id);
-
+	else if (branch_bypass == 0 && (loc_memwb.dst_reg_id == loc_ifid.rt) && loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0) {
 		idex.rt_val = loc_memwb.data;
 		//checksum은 rs값이랑만 계산 -> bypass가 rt에서 일어나도 bypass로 인한 checksum 계산은 안함 
 	}
 
 	//이 이후에 checksum 계산해주기
 	if (bypass == 1) {
-		//printf("Checksum by bypassing\n");
-		//printf("idex.rs_val at bypassing : 0x%08x\n", idex.rs_val);
 		checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val; //새로읽은 rs값(global에 저장한)에 대해서 checksum 계산
-		//printf("check sum after bypassing : 0x%08x\n", checksum);
 	}
 	else if(idex.rs<0 || idex.rs>31){
-		//printf("Checksum by nop instruction\n");
 		checksum = (checksum << 1 | checksum >> 31) ^ 0x00000000;
 	}
 	else {
-		/*printf("not bypass, ifid.rs is %d and Reg[ifid.rs] = %x\n", ifid.rs, Reg[ifid.rs]);
-		printf("check sum : %x\n", checksum);
-		printf("check sum<<1 >>31 : %x\n", ((checksum << 1) |( checksum >> 31)));*/
-
-		//printf("Checksum by general case\n");
-		//printf("idex.rs_val at general case: 0x%08x\n", idex.rs_val);
-		//printf("idex.rs index at general case: %d\n", idex.rs);
-
 		checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val;
-		//printf("check sum at general case: 0x%08x\n", checksum);
 	}
 	return 1;
 }
@@ -1265,6 +1362,7 @@ void EX(char* middle, int* Reg) {
 		exmem.dst_reg_id = loc_idex.rd;
 
 		if (!strncmp(loc_idex.funct, "100000", 6)) {
+			printf("exmem.alu_res in ex stage : 0x%08x \n", exmem.alu_res);
 			exmem.alu_res = loc_idex.rs_val + loc_idex.rt_val;
 			//add
 		}
@@ -1286,6 +1384,9 @@ void EX(char* middle, int* Reg) {
 		else if (!strncmp(loc_idex.funct, "100010", 6)) {
 			exmem.alu_res = loc_idex.rs_val - loc_idex.rt_val;
 			//sub
+		}
+		else {
+			printf("nop sll in ex stage\n");
 		}
 	}
 	else {
@@ -1422,6 +1523,9 @@ int MEM(char* middle, int* DMem) {
 		//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
 		//sw
 	}
+	else if (!strncmp(loc_exmem.opcode, "000000", 6)) {
+		printf("maybe nop of sll in mem stage\n");
+	}
 	else {
 		//그 이외 : ex stage에서 계산한 결과를 WB stage에서 reg에 저장하는 경우 
 		memwb.data = loc_exmem.alu_res;
@@ -1471,6 +1575,7 @@ int WB(char* middle, int* Reg) {
 	if (!strncmp(loc_memwb.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		if (!strncmp(loc_memwb.funct, "100000", 6)) {
+			printf("wb add result 0x%08x\n", loc_memwb.data);
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//add
 		}
@@ -1489,6 +1594,9 @@ int WB(char* middle, int* Reg) {
 		else if (!strncmp(loc_memwb.funct, "100010", 6)) {
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//sub
+		}
+		else if(!strncmp(loc_memwb.funct, "000000", 6)){
+			printf("maybe nop or sll in wb stage\n");
 		}
 	}
 	else {
@@ -1668,50 +1776,26 @@ int main(int argc, char* argv[]) {
 				*/
 				Reg[32] += 4;
 			}
-			/*
-			if (morecycle == 1) {
-				out++;
-				
-				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
-				--> ID stage
-				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
-				--> 자동으로 cycle 하나 더 증가
-			}
-				*/
 
-			loc_ifid = ifid;
+			if (IF_IDWrite == 1)
+				loc_ifid = ifid;
 			printf("다음 기회에 if id 둘 다 실행\n");
 			continue;
 		}
 
 		if (if_f = 1 && id_f == 1 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
 			IF(middle, Reg);
-			ID(Reg);
+			int idreturn=ID(Reg);
+			printf("id return value : %d\n",idreturn);
+
 
 			ex_f = 1; 
 			if (PCWrite == 1) {
-				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
-				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
-				//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
-				//Reg[32]를 증가하지 않는 경우 
-				/*
-				1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다
-				2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
-				*/
 				Reg[32] += 4;
 			}
 
-			/*
-			if (morecycle == 1) {
-				out++;
-
-				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
-				--> ID stage
-				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
-				--> 자동으로 cycle 하나 더 증가
-			}
-				*/
-			loc_ifid = ifid;
+			if(IF_IDWrite==1)
+				loc_ifid = ifid;
 			loc_idex = idex;
 			printf("다음 기회에 if id ex 셋 다 실행\n");
 
@@ -1719,34 +1803,16 @@ int main(int argc, char* argv[]) {
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 0 && wb_f == 0) {
 			IF(middle, Reg);
-			ID(Reg);
+			int idreturn = ID(Reg);
+			printf("id return value : %d\n", idreturn);
 			EX(middle, Reg);
 			mem_f = 1; 
 			if (PCWrite == 1) {
-				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
-				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
-				//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
-				//Reg[32]를 증가하지 않는 경우 
-				/*
-				1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다
-				2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
-				*/
 				Reg[32] += 4;
 			}
 
-			
-			/*
-			if (morecycle == 1) {
-				out++;
-
-				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
-				--> ID stage
-				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
-				--> 자동으로 cycle 하나 더 증가
-			}
-				*/
-
-			loc_ifid = ifid;
+			if (IF_IDWrite == 1)
+				loc_ifid = ifid;
 			loc_idex = idex;
 			loc_exmem = exmem;
 			printf("다음 기회에 if id ex mem 넷 다 실행\n");
@@ -1757,34 +1823,17 @@ int main(int argc, char* argv[]) {
 
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 0) {
 			IF(middle, Reg);
-			ID(Reg);
+			int idreturn = ID(Reg);
+			printf("id return value : %d\n", idreturn);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			wb_f = 1;
 			if (PCWrite == 1) {
-				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
-				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
-				//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
-				//Reg[32]를 증가하지 않는 경우 
-				/*
-				1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다
-				2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
-				*/
 				Reg[32] += 4;
 			}
 
-			/*
-			if (morecycle == 1) {
-				out++;
-
-				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
-				--> ID stage
-				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
-				--> 자동으로 cycle 하나 더 증가
-			}
-				*/
-
-			loc_ifid = ifid;
+			if (IF_IDWrite == 1)
+				loc_ifid = ifid;
 			loc_idex = idex;
 			loc_exmem = exmem;
 			loc_memwb = memwb;
@@ -1793,34 +1842,22 @@ int main(int argc, char* argv[]) {
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 1) {
 			IF(middle, Reg);
-			ID(Reg);
+			int idreturn = ID(Reg);
+			printf("id return value : %d\n", idreturn);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			WB(middle, Reg);
 
 			if (PCWrite == 1) {
-				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
-				//PCWrite가 1일때만 Reg[32] generally 하게 4 증가한다.
-				//pc값 기존껄로 똑같이 읽어도 cycle은 증가하기 
-				//Reg[32]를 증가하지 않는 경우 
-				/*
-				1. beq, bne, j -> PCWrite=0; && 알아서 자기들이 target address(Reg[32]값) 초기화 해준다
-				2. load - use data hazard -> 이전과 똑같은 Reg[32]를 쓰되, cycle은 증가시키기  -> PCWrite =0;
-				*/
 				Reg[32] += 4;
 			}
 
-			/*
-			if (morecycle == 1) {
-				out++;
-
-				beq, bne의 경우 taken일 때, bubble이 들어가는데, 그 때 cycle이 한번 소모되는 것을 본다.
-				--> ID stage
-				load use data hazard의 경우, 다음 cycle에 똑같은 instruction을 IF stage가 한번 더 읽게된다.
-				--> 자동으로 cycle 하나 더 증가
+			if (IF_IDWrite == 1) {
+				loc_ifid = ifid;
+				printf("ifid is updated\n");
 			}
-				*/
-			loc_ifid = ifid;
+			else
+				printf("ifid is not updated\n");
 			loc_idex = idex;
 			loc_exmem = exmem;
 			loc_memwb = memwb;
