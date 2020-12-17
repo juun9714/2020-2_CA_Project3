@@ -685,9 +685,6 @@ void IF(char* middle,int * Reg) {
 			ifid.rs = Regi(rs);
 			ifid.rt = Regi(rt);
 			ifid.imm = bintoDeci(Imm, 1);
-
-			//printf("im in if stage\nifid.rd :%d\nifid.rs :%d\nifid.rt :%d\n", ifid.rd, ifid.rs, ifid.rt);
-
 		}
 	}
 }
@@ -780,7 +777,6 @@ int ID(int* Reg) {
 	}else if (!strncmp(loc_ifid.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		//id/ex register에 reg index, reg value 둘 다 넘기기
-		printf("im in id stage rtype\n");
 
 		if (!strncmp(loc_ifid.funct, "100000", 6)) {
 			printf("add\n");
@@ -892,10 +888,7 @@ int ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			printf("unknown in r type\n");
-
 		}
-		return 5; //r type
 	}
 	else {
 		//For I-type
@@ -1232,10 +1225,7 @@ int ID(int* Reg) {
 			idex.cont_op.ForwardB = 0;
 			PCWrite = 1;
 			IF_IDWrite = 1;
-			printf("unknown in i type\n");
-
 		}
-		return 1;//i type
 	}
 
 
@@ -1782,14 +1772,12 @@ int main(int argc, char* argv[]) {
 
 			if (IF_IDWrite == 1)
 				loc_ifid = ifid;
-			printf("다음 기회에 if id 둘 다 실행\n");
 			continue;
 		}
 
 		if (if_f = 1 && id_f == 1 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
 			IF(middle, Reg);
 			int idreturn=ID(Reg);
-			printf("id return value : %d\n",idreturn);
 
 
 			ex_f = 1; 
@@ -1800,14 +1788,11 @@ int main(int argc, char* argv[]) {
 			if(IF_IDWrite==1)
 				loc_ifid = ifid;
 			loc_idex = idex;
-			printf("다음 기회에 if id ex 셋 다 실행\n");
-
 			continue;
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 0 && wb_f == 0) {
 			IF(middle, Reg);
 			int idreturn = ID(Reg);
-			printf("id return value : %d\n", idreturn);
 			EX(middle, Reg);
 			mem_f = 1; 
 			if (PCWrite == 1) {
@@ -1818,8 +1803,6 @@ int main(int argc, char* argv[]) {
 				loc_ifid = ifid;
 			loc_idex = idex;
 			loc_exmem = exmem;
-			printf("다음 기회에 if id ex mem 넷 다 실행\n");
-
 			continue;
 		}
 
@@ -1827,7 +1810,6 @@ int main(int argc, char* argv[]) {
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 0) {
 			IF(middle, Reg);
 			int idreturn = ID(Reg);
-			printf("id return value : %d\n", idreturn);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			wb_f = 1;
@@ -1840,13 +1822,11 @@ int main(int argc, char* argv[]) {
 			loc_idex = idex;
 			loc_exmem = exmem;
 			loc_memwb = memwb;
-			printf("다음 기회에 if id ex mem wb 다섯 다 실행\n");
 			continue;
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 1) {
 			IF(middle, Reg);
 			int idreturn = ID(Reg);
-			printf("id return value : %d\n", idreturn);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			WB(middle, Reg);
@@ -1857,14 +1837,13 @@ int main(int argc, char* argv[]) {
 
 			if (IF_IDWrite == 1) {
 				loc_ifid = ifid;
-				printf("ifid is updated\n");
+				//printf("ifid is updated\n");
 			}
 			else
-				printf("ifid is not updated\n");
+				//printf("ifid is not updated\n");
 			loc_idex = idex;
 			loc_exmem = exmem;
 			loc_memwb = memwb;
-			printf("pipe line is fully utilized !!\n");
 			continue;
 		}
 
