@@ -587,16 +587,12 @@ int printMid(char* middle, int* Reg, int* DMem, char* last) {
 }
 
 void IF(char* middle,int * Reg) {
-	//printf("if stage\n");
 	/*
 	32 bit string이 들어옴 by middle
-
 	IF 함수에서 할 일, pc+4 또는 target address 또는 jump address 주소에 있는 instruction 읽어서 
 	32bit IF/ID register에 쪼개서 저장
 	일단 지금 inst mem = last 배열, data memory = DMem, register file = Reg
-	
 	*/
-	//printf("im in if stage and this instruction is 0x%s\n",middle);
 	strncpy(ifid.pc_register, middle, 32);
 	ifid.pc_register[32] = '\0';
 	IF_IDWrite = 1;
@@ -657,11 +653,14 @@ void IF(char* middle,int * Reg) {
 		if (!strncmp(forOp, "000010", 6)) {
 			//For J and JAL
 			//opcode(6) target(26)
+			for (rsi = 0; rsi < 5; rsi++)//rs 확인
+				rs[rsi] = middle[rsi + 6];
 			for (tari = 0; tari < 26; tari++) //immediate == 26bit
 				target[tari] = middle[tari + 6];
 
 			strncpy(ifid.opcode, forOp, 6);
 			ifid.opcode[6] = '\0';
+			ifid.rs = Regi(rs);
 			ifid.targ_addr = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
 			Reg[32] = ifid.targ_addr;
 			PCWrite = 0;
@@ -787,7 +786,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush= 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			//add
 		}
@@ -803,7 +801,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			//and
 		}
@@ -819,7 +816,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			//or
 		}
@@ -835,7 +831,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			//slt
 		}
@@ -851,7 +846,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			//sub
 		}
@@ -868,7 +862,6 @@ int ID(int* Reg, int* DMem) {
 				idex.cont_op.IF_Flush = 0;
 				idex.cont_op.ForwardA = 0;
 				idex.cont_op.ForwardB = 0;
-				PCWrite = 1;
 				IF_IDWrite = 1;
 			}
 			//sll -> nop
@@ -884,7 +877,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 		}
 	}
@@ -903,7 +895,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			//addi
 		}
@@ -919,9 +910,7 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
-			// 왜 0x0000FFFF랑 &를 하지...
 			//andi
 		}
 		else if (!strncmp(loc_ifid.opcode, "000100", 6)) {
@@ -1093,7 +1082,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			//Reg[idex.rt] = (bintoDeci(Imm, 1) << 16); -> EX stage
 			//lui
@@ -1111,7 +1099,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			//Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
 		}
@@ -1127,7 +1114,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			//Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
 			//ori
@@ -1142,7 +1128,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			printf("sw\n");
 
@@ -1159,7 +1144,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			printf("slti\n");
 
@@ -1179,10 +1163,8 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 			printf("j\n");
-
 			//j
 		}
 		else {
@@ -1196,7 +1178,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.IF_Flush = 0;
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
-			PCWrite = 1;
 			IF_IDWrite = 1;
 		}
 	}
@@ -1218,12 +1199,18 @@ int ID(int* Reg, int* DMem) {
 
 	//이 이후에 checksum 계산해주기
 	if (bypass == 1) {
+		printf("checksum: 0x%08x = (0x%08x <<1 | 0x%08x>>31) ^ 0x%08x\n", 
+			(checksum << 1 | checksum >> 31) ^ idex.rs_val, checksum, checksum, idex.rs_val);
 		checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val; //새로읽은 rs값(global에 저장한)에 대해서 checksum 계산
 	}
 	else if(idex.rs<0 || idex.rs>31){
+		printf("checksum: 0x%08x = (0x%08x <<1 | 0x%08x>>31) ^ 0x%08x\n",
+			(checksum << 1 | checksum >> 31) ^ 0x00000000, checksum, checksum, 0x00000000);
 		checksum = (checksum << 1 | checksum >> 31) ^ 0x00000000;
 	}
 	else {
+		printf("checksum: 0x%08x = (0x%08x <<1 | 0x%08x>>31) ^ 0x%08x\n",
+			(checksum << 1 | checksum >> 31) ^ idex.rs_val, checksum, checksum, idex.rs_val);
 		checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val;
 	}
 	return 1;
@@ -1766,8 +1753,9 @@ int main(int argc, char* argv[]) {
 		
 		if (if_f = 1 && id_f == 0 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
 			//if stage만 활성화
-			IF(middle, Reg);
 			printReg = Reg[32];
+
+			IF(middle, Reg);
 
 			id_f = 1;
 			if (PCWrite == 1) {
@@ -1788,9 +1776,10 @@ int main(int argc, char* argv[]) {
 		}
 
 		if (if_f = 1 && id_f == 1 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
+			printReg = Reg[32];
+
 			IF(middle, Reg);
 			ID(Reg, DMem);
-			printReg = Reg[32];
 
 
 			ex_f = 1; 
@@ -1804,10 +1793,11 @@ int main(int argc, char* argv[]) {
 			continue;
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 0 && wb_f == 0) {
+			printReg = Reg[32];
+
 			IF(middle, Reg);
 			ID(Reg, DMem);
 			EX(middle, Reg);
-			printReg = Reg[32];
 
 			mem_f = 1; 
 			if (PCWrite == 1) {
@@ -1823,11 +1813,12 @@ int main(int argc, char* argv[]) {
 
 
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 0) {
+			printReg = Reg[32];
+
 			IF(middle, Reg);
 			ID(Reg, DMem);
 			EX(middle, Reg);
 			MEM(middle, DMem);
-			printReg = Reg[32];
 
 			wb_f = 1;
 			if (PCWrite == 1) {
@@ -1842,12 +1833,13 @@ int main(int argc, char* argv[]) {
 			continue;
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 1) {
+			printReg = Reg[32];
+
 			IF(middle, Reg);
 			ID(Reg, DMem);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			WB(middle, Reg);
-			printReg = Reg[32];
 
 			printf("pcwrite value %d\n", PCWrite);
 			if (PCWrite == 1) {
