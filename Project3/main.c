@@ -185,7 +185,6 @@ MEMWB loc_memwb;
 int cycle = 0;
 char PCWrite=1;
 char IF_IDWrite=1;
-int branch_bypass = 0;
 int morecycle = 0;
 unsigned int checksum = 0;
 int if_f = 0;
@@ -690,7 +689,6 @@ void IF(char* middle,int * Reg) {
 	}
 }
 int ID(int* Reg, int* DMem) {
-	branch_bypass = 0;
 	//printf("im in id stage\n");
 	IF_IDWrite = 1;
 	strncpy(idex.opcode, loc_ifid.opcode, 7);
@@ -948,7 +946,6 @@ int ID(int* Reg, int* DMem) {
 			 
 			<lw nop nop branch>
 			data hazard인 경우 beq내에서 bypass why? ID 내에서 직접 bypassing한 값을 재료로 계산을 해야하기 때문
-			ID stage 마지막의 branch if문에서 branch_bypass=1이면, bypass 확인 안하기
 
 			<lw nop branch>
 			exmem.reg-dst == ifid.rs or rt ,exmem.cont-op.memread == 1
@@ -982,22 +979,17 @@ int ID(int* Reg, int* DMem) {
 			/*
 			<lw nop nop branch>
 			data hazard인 경우 beq내에서 bypass why? ID 내에서 직접 bypassing한 값을 재료로 계산을 해야하기 때문
-			ID stage 마지막의 branch if문에서 branch_bypass=1이면, bypass 확인 안하기
 			--> 얘는 대놓고 bypass -> bypass한 값으로 checksum
 			*/
 			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
 				rs = loc_memwb.data;
 				idex.rs_val = rs;
 				printf("this is beq's bypass rs\nbypassed rs value of branch inst is 0x%08x\n", rs);
-				checksum = (checksum << 1 | checksum >> 31) ^ rs;
-				branch_bypass = 1;
 			}
 			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)){
 				rt = loc_memwb.data;
 				printf("this is beq's bypass rt\nbypassed rt value of branch inst is 0x%08x\n", rt);
 				idex.rt_val = rt;
-				checksum = (checksum << 1 | checksum >> 31) ^ rs;
-				branch_bypass = 1;
 			}
 
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
@@ -1060,23 +1052,16 @@ int ID(int* Reg, int* DMem) {
 			/*
 			<lw nop nop branch>
 			data hazard인 경우 beq내에서 bypass why? ID 내에서 직접 bypassing한 값을 재료로 계산을 해야하기 때문
-			ID stage 마지막의 branch if문에서 branch_bypass=1이면, bypass 확인 안하기
 			*/
 			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
 				rs = loc_memwb.data;
 				idex.rs_val = rs;
 				printf("this is bne's bypass rs\nbypassed rs value of branch inst is 0x%08x\n", rs);
-				checksum = (checksum << 1 | checksum >> 31) ^ rs;
-				//bypass한 값을 ex로 넘겨줄지 안넘겨줄지 모르니 일단 여기서 rs값으로 checksum한다 
-				//그리고 안넘겨 주고 nop을 넘겨주게 된다면, 아래 if문 안에서 알아서 nop으로 다시 세팅한다. 
-				branch_bypass = 1;
 			}
 			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)) {
 				rt = loc_memwb.data;
 				printf("this is bne's bypass rt\nbypassed rt value of branch inst is 0x%08x\n", rt);
 				idex.rt_val = rt;
-				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
-				branch_bypass = 1;
 			}
 
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
@@ -1222,11 +1207,11 @@ int ID(int* Reg, int* DMem) {
 	//일반적인 경우 이후에 이 예외처리를 if문으로 해줘야 함 
 	int bypass = 0;
 	//branch에서 bypass가 일어나지 않았어야 함 
-	if (branch_bypass==0 && (loc_memwb.dst_reg_id == loc_ifid.rs) && loc_memwb.cont_op.RegWrite ==1 && loc_memwb.dst_reg_id != 0) {
+	if ((loc_memwb.dst_reg_id == loc_ifid.rs) && loc_memwb.cont_op.RegWrite ==1 && loc_memwb.dst_reg_id != 0) {
 		idex.rs_val = loc_memwb.data;
 		bypass = 1;
 	}
-	else if (branch_bypass == 0 && (loc_memwb.dst_reg_id == loc_ifid.rt) && loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0) {
+	else if ((loc_memwb.dst_reg_id == loc_ifid.rt) && loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0) {
 		idex.rt_val = loc_memwb.data;
 		//checksum은 rs값이랑만 계산 -> bypass가 rt에서 일어나도 bypass로 인한 checksum 계산은 안함 
 	}
@@ -1761,9 +1746,11 @@ int main(int argc, char* argv[]) {
 	int pc;//last의 시작점 
 
 
-
+	int printReg = 0;
 
 	for (int out = 0; out < cy_number/*number은 input으로 받을 것임 횟수*/;) {
+		PCWrite = 1;
+
 		pc = Reg[32] * 8; //만약 Reg[32]에 4가 저장되어있으면 두번째 명령어를 읽으라는 소리 = last[32]를 읽어야 함
 		for (int in = 0; in < 32; in++) { //32bit씩 읽어서 middle에 저장함. (middle = 명령어 한 줄)
 			//printf("out is %d\n", out);
@@ -1780,6 +1767,8 @@ int main(int argc, char* argv[]) {
 		if (if_f = 1 && id_f == 0 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
 			//if stage만 활성화
 			IF(middle, Reg);
+			printReg = Reg[32];
+
 			id_f = 1;
 			if (PCWrite == 1) {
 				//PCWrite는 IF의 j, ID의 beq bne load use data hazard (ID stage 내의 if문) 
@@ -1801,6 +1790,8 @@ int main(int argc, char* argv[]) {
 		if (if_f = 1 && id_f == 1 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
 			IF(middle, Reg);
 			ID(Reg, DMem);
+			printReg = Reg[32];
+
 
 			ex_f = 1; 
 			if (PCWrite == 1) {
@@ -1816,6 +1807,8 @@ int main(int argc, char* argv[]) {
 			IF(middle, Reg);
 			ID(Reg, DMem);
 			EX(middle, Reg);
+			printReg = Reg[32];
+
 			mem_f = 1; 
 			if (PCWrite == 1) {
 				Reg[32] += 4;
@@ -1834,6 +1827,8 @@ int main(int argc, char* argv[]) {
 			ID(Reg, DMem);
 			EX(middle, Reg);
 			MEM(middle, DMem);
+			printReg = Reg[32];
+
 			wb_f = 1;
 			if (PCWrite == 1) {
 				Reg[32] += 4;
@@ -1852,9 +1847,11 @@ int main(int argc, char* argv[]) {
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			WB(middle, Reg);
+			printReg = Reg[32];
+
 			printf("pcwrite value %d\n", PCWrite);
 			if (PCWrite == 1) {
-				printf("pc= pc+4\n");
+				printf("pc= pc+4 0x%08x\n",Reg[32]);
 				Reg[32] += 4;
 			}
 			if (IF_IDWrite == 1) 
@@ -1869,7 +1866,7 @@ int main(int argc, char* argv[]) {
 	}
 	free(last);
 
-
+	Reg[32] -= 4;
 	if (!strncmp(argv[3], "mem", 3)) {
 		memstart -= 0x10000000;
 		for (int mem = memstart; mem < memnum; mem++) {
@@ -1879,8 +1876,10 @@ int main(int argc, char* argv[]) {
 	else if (!strncmp(argv[3], "reg", 3)) {
 		printf("Checksum: 0x%08x\n", checksum);
 		for (int regg = 0; regg < 33; regg++) {
-			if (regg == 32)
-				printf("PC: 0x%08x\n", Reg[regg]-4);
+			if (regg == 32) {
+				printf("PC: 0x%08x\n", Reg[regg]);
+				printf("printReg: 0x%08x\n", printReg);
+			}
 			else
 				printf("$%d: 0x%08x\n", regg, Reg[regg]);
 		}
