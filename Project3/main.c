@@ -388,204 +388,6 @@ int bintoDeci(char* bin, int flag) {
 	return sum;
 }
 
-int printMid(char* middle, int* Reg, int* DMem, char* last) {
-	//32bit를 갖고 있는 문자열이 들어오는 겨 
-	//-> 32bit짜리 binary code가 하라는 대로 해보자
-	//일단 지금 inst mem = last 배열, data memory = DMem, register file = Reg
-
-	//middle : 32bit string
-	//Common//
-	char forOp[6];
-	char rs[5], rt[5], rd[5], shamt[5], target[26];
-	int rsi, rti, rdi, shi, immi, tari;
-	//what is opcode
-	for (int op = 0; op < 6; op++)
-		forOp[op] = middle[op];
-	
-	//opcode = "000000" =>R-type : funct를 확인
-	//레지스터 값 확인: 다른 함수(Regi)로 뺐다.
-	//shamt 값 확인: 다른 함수(Shift)로 뺐다.
-
-	char forFunct[6];//For R-type
-	char Imm[16]; //For I-type
-	if (!strncmp(forOp, "000000", 6))
-	{//R-type ->  op rs rt rd shamt funct
-		for (int func = 0; func < 6; func++)//funct 확인
-			forFunct[func] = middle[func + 26];
-
-		for (rsi = 0; rsi < 5; rsi++)//rs 확인
-			rs[rsi] = middle[rsi + 6];
-
-		for (rti = 0; rti < 5; rti++)//rt 확인
-			rt[rti] = middle[rti + 11];
-
-		for (rdi = 0; rdi < 5; rdi++)//rd 확인
-			rd[rdi] = middle[rdi + 16];
-
-		for (shi = 0; shi < 5; shi++)//shamt
-			shamt[shi] = middle[shi + 21];
-		//shamt는 양의 정수 0~31
-		//shamt는 $안붙음 --> Shift 함수로 넣어서 출력하기
-
-		if (!strncmp(forFunct, "100000", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] + Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
-			//add
-		}
-		else if (!strncmp(forFunct, "100100", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] & Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
-			//and
-		}
-		else if (!strncmp(forFunct, "100101", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] | Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
-			//or
-		}
-		else if (!strncmp(forFunct, "101010", 6)) {
-			if (Reg[Regi(rs)] < Reg[Regi(rt)])
-				Reg[Regi(rd)] = 1;
-			else
-				Reg[Regi(rd)] = 0;
-			Reg[32] += 4;
-			return 1;
-			//slt
-		}
-		else if (!strncmp(forFunct, "100010", 6)) {
-			Reg[Regi(rd)] = Reg[Regi(rs)] - Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
-			//sub
-		}
-		else if (!strncmp(forFunct, "000000", 6)) {
-			//printf("sll -> nop ");
-			if (!(strncmp(rd, "00000", 5)) && !strncmp(rs, "00000", 5) && !strncmp(rt, "00000", 5) && !strncmp(shamt, "00000", 5)) {
-				Reg[32] += 4;
-				return 1;
-			}
-			//sll -> nop
-		}
-		else {
-			printf("unknown instruction\n");
-			Reg[32] += 4;
-			return -1;
-		}
-	}
-	else {
-		//For I-type
-		for (rsi = 0; rsi < 5; rsi++)//rs 확인
-			rs[rsi] = middle[rsi + 6];
-
-		for (rti = 0; rti < 5; rti++)//rt 확인
-			rt[rti] = middle[rti + 11];
-
-		for (immi = 0; immi < 16; immi++)//immediate 확인
-			Imm[immi] = middle[immi + 16];
-
-		//For J and JAL
-		for (tari = 0; tari < 26; tari++) //immediate == 26bit
-			target[tari] = middle[tari + 6];
-
-
-		if (!strncmp(forOp, "001000", 6)) {
-			Reg[Regi(rt)] = Reg[Regi(rs)] + bintoDeci(Imm, 1);
-			Reg[32] += 4;
-			return 1;
-
-			//addi
-		}
-		else if (!strncmp(forOp, "001100", 6)) {
-			Reg[Regi(rt)] = Reg[Regi(rs)] & (0x0000FFFF & bintoDeci(Imm, 1));
-			Reg[32] += 4;
-			return 1;
-
-			//andi
-		}
-		else if (!strncmp(forOp, "000100", 6)) {
-			if (Reg[Regi(rs)] == Reg[Regi(rt)])
-				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
-			else
-				Reg[32] += 4;
-
-			return 1;
-
-			//beq, offset
-		}
-		else if (!strncmp(forOp, "000101", 6)) {
-			if (Reg[Regi(rs)] != Reg[Regi(rt)])
-				Reg[32] = Reg[32] + 4 + (4 * bintoDeci(Imm, 1));
-			else
-				Reg[32] += 4;
-
-			return 1;
-
-			//bne
-		}
-		else if (!strncmp(forOp, "001111", 6)) {
-			Reg[Regi(rt)] = (bintoDeci(Imm, 1) << 16);
-			Reg[32] += 4;
-			return 1;
-
-			//lui
-		}
-		else if (!strncmp(forOp, "100011", 6)) {
-			/*printf("i am lw\n");
-			printf("%x\n", DMem[((Reg[Regi(rs)]+bintoDeci(Imm,1))-0x10000000)/4]);
-			printf("%x\n", bintoDeci(Imm, 1));*/
-			Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
-			Reg[32] += 4;
-			return 1;
-
-			//DMem은 정수형 배열(4 byte 단위)이기 때문에 0x4의 주소값을 갖는 메모리의 데이터(1 byte 단위)를 얻고 싶다면, DMem[0x1]에 접근해야한다. 
-			//lw
-			//lw $2, 1073741824($10)
-		}
-		else if (!strncmp(forOp, "001101", 6)) {
-			Reg[Regi(rt)] = Reg[Regi(rs)] | (0x0000FFFF & bintoDeci(Imm, 1));
-			Reg[32] += 4;
-			return 1;
-
-			//ori
-		}
-		else if (!strncmp(forOp, "101011", 6)) {
-			/*printf("i am sw\n");
-			printf("%x\n", Reg[Regi(rt)]);
-			printf("%x\n",Reg[Regi(rs)]-0x10000000);
-			printf("%x\n",bintoDeci(Imm,1))*/;
-			DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
-			Reg[32] += 4;
-			return 1;
-
-			//sw
-		}
-		else if (!strncmp(forOp, "001010", 6)) {
-			if (Reg[Regi(rs)] < bintoDeci(Imm, 1))
-				Reg[Regi(rt)] = 1;
-			else
-				Reg[Regi(rt)] = 0;
-			Reg[32] += 4;
-			return 1;
-
-			//slti
-		}
-		else if (!strncmp(forOp, "000010", 6)) {
-			Reg[32] = (0x0FFFFFFF & (bintoDeci(target, -1) << 2)) | ((Reg[32] + 4) & 0xF0000000);
-
-			return 1;
-
-			//j
-		}
-		else {
-			printf("unknown instruction\n");
-			Reg[32] += 4;
-			return -1;
-		}
-	}
-}
-
 void IF(char* middle,int * Reg) {
 	/*
 	32 bit string이 들어옴 by middle
@@ -614,8 +416,6 @@ void IF(char* middle,int * Reg) {
 	if (!strncmp(forOp, "000000", 6))
 	{//R-type ->(add sub and or slt)
 	//opcode(6) rs(5) rt(5) rd(5) shamt(5) funct(6)
-		//printf("im in if stage's rtype\n");
-
 		for (int func = 0; func < 6; func++)//funct 확인
 			forFunct[func] = middle[func + 26];
 
@@ -644,8 +444,6 @@ void IF(char* middle,int * Reg) {
 		ifid.funct[6] = '\0';
 		strncpy(ifid.shamt, shamt,5);
 		ifid.shamt[5] = '\0';
-
-		//ifid.shamt 이 simulator에 shift 하는 명령어 없음
 		//IF/ID set
 	}
 	else {
@@ -666,8 +464,6 @@ void IF(char* middle,int * Reg) {
 			PCWrite = 0;
 		}
 		else {
-			///printf("im in if stage's I type\n");
-
 			//For I-type (addi andi ori slti) (+ lw, sw, beq, bne, lui)
 			//opcode(6) rs(5) rt(5) imm(16)
 			for (rsi = 0; rsi < 5; rsi++)//rs 확인
@@ -688,7 +484,6 @@ void IF(char* middle,int * Reg) {
 	}
 }
 int ID(int* Reg, int* DMem) {
-	//printf("im in id stage\n");
 	IF_IDWrite = 1;
 	strncpy(idex.opcode, loc_ifid.opcode, 7);
 	strncpy(idex.funct, loc_ifid.funct, 7);
@@ -722,7 +517,6 @@ int ID(int* Reg, int* DMem) {
 		- 하지만 Bypassing은 
 	
 	*/
-	//7개 문자 그대로 카피하는 이유 -> IF 함수에서 이미 마지막 요소는 null로 초기화 했기 때문에, 그대로 옮기면 null도 들어올듯
 	//7. load use data hazard
 	//id/ex FF를 조작 
 	//if/id FF는 그대로
@@ -748,7 +542,6 @@ int ID(int* Reg, int* DMem) {
 		strncpy(idex.opcode, "000000\0", 7);
 		strncpy(idex.funct, "000000\0", 7);
 		strncpy(idex.shamt, "00000\0",6);
-		printf("idex.opcode : %s\nidex.funct : %s\nidex.funct : %s\n", idex.opcode, idex.funct, idex.shamt);
 		idex.imm = 0;
 		idex.rd = 0;
 		idex.rt = 0;
@@ -768,7 +561,6 @@ int ID(int* Reg, int* DMem) {
 		idex.cont_op.ForwardB = 0;
 		PCWrite = 0;
 		IF_IDWrite = 0;
-		printf("load use data hazard occurred in ID stage\n");
 		return 10; //10 means load hzd
 	}
 	else if (!strncmp(loc_ifid.opcode, "000000", 6))
@@ -776,7 +568,6 @@ int ID(int* Reg, int* DMem) {
 		//id/ex register에 reg index, reg value 둘 다 넘기기
 
 		if (!strncmp(loc_ifid.funct, "100000", 6)) {
-			printf("add\n");
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -790,8 +581,6 @@ int ID(int* Reg, int* DMem) {
 			//add
 		}
 		else if (!strncmp(loc_ifid.funct, "100100", 6)) {
-			printf("and\n");
-
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -805,8 +594,6 @@ int ID(int* Reg, int* DMem) {
 			//and
 		}
 		else if (!strncmp(loc_ifid.funct, "100101", 6)) {
-			printf("or\n");
-
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -820,8 +607,6 @@ int ID(int* Reg, int* DMem) {
 			//or
 		}
 		else if (!strncmp(loc_ifid.funct, "101010", 6)) {
-			printf("slt\n");
-
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -835,8 +620,6 @@ int ID(int* Reg, int* DMem) {
 			//slt
 		}
 		else if (!strncmp(loc_ifid.funct, "100010", 6)) {
-			printf("sub\n");
-
 			idex.cont_op.RegDst = 1; //rd
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -851,8 +634,6 @@ int ID(int* Reg, int* DMem) {
 		}
 		else if (!strncmp(loc_ifid.funct, "000000", 6)) {
 			if ((loc_ifid.rd==0) && (loc_ifid.rs == 0) && (loc_ifid.rt == 0) && !strncmp(loc_ifid.shamt, "00000", 5)) {
-				printf("nop\n");
-
 				idex.cont_op.RegDst = 0;
 				idex.cont_op.MemtoReg = 0;
 				idex.cont_op.RegWrite = 0;
@@ -885,7 +666,6 @@ int ID(int* Reg, int* DMem) {
 		idex.imm = loc_ifid.imm;
 		//For J and JAL
 		if (!strncmp(loc_ifid.opcode, "001000", 6)) {
-			printf("addi\n");
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -899,8 +679,6 @@ int ID(int* Reg, int* DMem) {
 			//addi
 		}
 		else if (!strncmp(loc_ifid.opcode, "001100", 6)) {
-			printf("andi\n");
-
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -914,8 +692,6 @@ int ID(int* Reg, int* DMem) {
 			//andi
 		}
 		else if (!strncmp(loc_ifid.opcode, "000100", 6)) {
-			printf("beq\n");
-
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 0;
@@ -973,19 +749,15 @@ int ID(int* Reg, int* DMem) {
 			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
 				rs = loc_memwb.data;
 				idex.rs_val = rs;
-				printf("this is beq's bypass rs\nbypassed rs value of branch inst is 0x%08x\n", rs);
 			}
 			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)){
 				rt = loc_memwb.data;
-				printf("this is beq's bypass rt\nbypassed rt value of branch inst is 0x%08x\n", rt);
 				idex.rt_val = rt;
 			}
 
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
 			//always not taken 
 			if (rs == rt) { //if taken
-				printf("beq's condition is taken\n");
-
 				char bubble[33] = "000000000000000000000000000000000";
 				bubble[32] = '\0';
 				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
@@ -1005,8 +777,6 @@ int ID(int* Reg, int* DMem) {
 			//beq, offset
 		}
 		else if (!strncmp(loc_ifid.opcode, "000101", 6)) {
-			printf("bne\n");
-
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 0;
@@ -1045,17 +815,14 @@ int ID(int* Reg, int* DMem) {
 			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
 				rs = loc_memwb.data;
 				idex.rs_val = rs;
-				printf("this is bne's bypass rs\nbypassed rs value of branch inst is 0x%08x\n", rs);
 			}
 			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)) {
 				rt = loc_memwb.data;
-				printf("this is bne's bypass rt\nbypassed rt value of branch inst is 0x%08x\n", rt);
 				idex.rt_val = rt;
 			}
 
 			//브랜치는 ID에서 같은지 확인하고, PC+4 + offset 계산해서 다음 PC 정해줘야 해 
 			if (rs != rt) {
-				printf("bne's condition is taken\n");
 				char bubble[33] = "000000000000000000000000000000000";
 				bubble[32] = '\0';
 				idex.cont_op.IF_Flush = 1; //if 밀어버리세용
@@ -1063,16 +830,12 @@ int ID(int* Reg, int* DMem) {
 				// id ex mem wb가 nop으로 초기화 됨, 근데 branch된 pc값이 반영이 안되네
 				//원래 Reg[32] = Reg[32] + 4 + (4 * loc_ifid.imm) <== 이 식이었는데, +4를 빼니까 답이 맞아졌음 
 				Reg[32] = Reg[32] + (4 * loc_ifid.imm);
-				printf("loc_ifid.imm is 0x%08x\n", loc_ifid.imm);
-				printf("branched pc value is 0x%08x\n", Reg[32]);
 				PCWrite = 0;
 			}
 			//always not taken(조건이 항상 틀릴 거라고 가정)
 			//bne, offset
 		}
 		else if (!strncmp(loc_ifid.opcode, "001111", 6)) {
-			printf("lui\n");
-
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -1087,8 +850,6 @@ int ID(int* Reg, int* DMem) {
 			//lui
 		}
 		else if (!strncmp(loc_ifid.opcode, "100011", 6)) {
-			printf("lw\n");
-
 			//lw
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 1;
@@ -1103,8 +864,6 @@ int ID(int* Reg, int* DMem) {
 			//Reg[Regi(rt)] = DMem[((Reg[Regi(rs)] + bintoDeci(Imm, 1)) - 0x10000000) / 4];
 		}
 		else if (!strncmp(loc_ifid.opcode, "001101", 6)) {
-			printf("ori\n");
-
 			idex.cont_op.RegDst = 0; //rt
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 1;
@@ -1129,8 +888,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
 			IF_IDWrite = 1;
-			printf("sw\n");
-
 			//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
 			//sw
 		}
@@ -1145,8 +902,6 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
 			IF_IDWrite = 1;
-			printf("slti\n");
-
 			/*if (Reg[Regi(rs)] < bintoDeci(Imm, 1))
 				Reg[Regi(rt)] = 1;
 			else
@@ -1164,11 +919,9 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
 			IF_IDWrite = 1;
-			printf("j\n");
 			//j
 		}
 		else {
-			//printf("unknown instruction\n");
 			idex.cont_op.RegDst = 0;
 			idex.cont_op.MemtoReg = 0;
 			idex.cont_op.RegWrite = 0;
@@ -1187,30 +940,23 @@ int ID(int* Reg, int* DMem) {
 	//load든, R-type instruction이든 
 	//일반적인 경우 이후에 이 예외처리를 if문으로 해줘야 함 
 	int bypass = 0;
-	//branch에서 bypass가 일어나지 않았어야 함 
 	if ((loc_memwb.dst_reg_id == loc_ifid.rs) && loc_memwb.cont_op.RegWrite ==1 && loc_memwb.dst_reg_id != 0) {
 		idex.rs_val = loc_memwb.data;
 		bypass = 1;
 	}
 	else if ((loc_memwb.dst_reg_id == loc_ifid.rt) && loc_memwb.cont_op.RegWrite == 1 && loc_memwb.dst_reg_id != 0) {
 		idex.rt_val = loc_memwb.data;
-		//checksum은 rs값이랑만 계산 -> bypass가 rt에서 일어나도 bypass로 인한 checksum 계산은 안함 
 	}
 
 	//이 이후에 checksum 계산해주기
 	if (bypass == 1) {
-		printf("checksum: 0x%08x = (0x%08x <<1 | 0x%08x>>31) ^ 0x%08x\n", 
-			(checksum << 1 | checksum >> 31) ^ idex.rs_val, checksum, checksum, idex.rs_val);
+		//printf("checksum: 0x%08x = (0x%08x <<1 | 0x%08x>>31) ^ 0x%08x\n", (checksum << 1 | checksum >> 31) ^ idex.rs_val, checksum, checksum, idex.rs_val);
 		checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val; //새로읽은 rs값(global에 저장한)에 대해서 checksum 계산
 	}
 	else if(idex.rs<0 || idex.rs>31){
-		printf("checksum: 0x%08x = (0x%08x <<1 | 0x%08x>>31) ^ 0x%08x\n",
-			(checksum << 1 | checksum >> 31) ^ 0x00000000, checksum, checksum, 0x00000000);
 		checksum = (checksum << 1 | checksum >> 31) ^ 0x00000000;
 	}
 	else {
-		printf("checksum: 0x%08x = (0x%08x <<1 | 0x%08x>>31) ^ 0x%08x\n",
-			(checksum << 1 | checksum >> 31) ^ idex.rs_val, checksum, checksum, idex.rs_val);
 		checksum = (checksum << 1 | checksum >> 31) ^ idex.rs_val;
 	}
 	return 1;
@@ -1303,10 +1049,8 @@ void EX(char* middle, int* Reg) {
 	}
 	if (loc_exmem.cont_op.RegWrite == 1 && loc_exmem.dst_reg_id != 0 && (loc_exmem.dst_reg_id == loc_idex.rt)) {
 		//EX-Hzd of rt -> forwardB = 2
-		//printf("ex hzd of rt  exmem.dst : %d  idex.rt : %d\n", loc_exmem.dst_reg_id, loc_idex.rt);
 		idex.cont_op.ForwardB = 2;
 		loc_idex.rt_val = loc_exmem.alu_res;
-		//printf("ex hzd of rt  loc_idex.rt_val : 0x%08x   loc_exmem.alu_res : 0x%08x\n", loc_idex.rt_val, loc_exmem.alu_res);
 	}
 	
 
@@ -1315,22 +1059,18 @@ void EX(char* middle, int* Reg) {
 	{//R-type ->  op rs rt rd shamt funct -> rd is dst regiter id
 		exmem.dst_reg_id = loc_idex.rd;
 		if (!strncmp(loc_idex.funct, "100000", 6)) {
-			printf("add in ex\n");
 			exmem.alu_res = loc_idex.rs_val + loc_idex.rt_val;
 			//add
 		}
 		else if (!strncmp(loc_idex.funct, "100100", 6)) {
-			printf("and in ex\n");
 			exmem.alu_res = (loc_idex.rs_val & loc_idex.rt_val);
 			//and
 		}
 		else if (!strncmp(loc_idex.funct, "100101", 6)) {
-			printf("or in ex\n");
 			exmem.alu_res = (loc_idex.rs_val | loc_idex.rt_val);
 			//or
 		}
 		else if (!strncmp(loc_idex.funct, "101010", 6)) {
-			printf("slt in ex\n");
 			if (loc_idex.rs_val < loc_idex.rt_val)
 				exmem.alu_res = 1;
 			else
@@ -1338,65 +1078,50 @@ void EX(char* middle, int* Reg) {
 			//slt
 		}
 		else if (!strncmp(loc_idex.funct, "100010", 6)) {
-			printf("sub in ex\n");
 			exmem.alu_res = loc_idex.rs_val - loc_idex.rt_val;
 			//sub
 		}
 		else {
-			printf("nop in ex\n");
+			//printf("nop in ex\n");
 		}
 	}
 	else {
-		//printf("im in EX stage I type\n");
 		//For I-type
 		exmem.dst_reg_id = loc_idex.rt;
 		//For J and JAL
 
 		if (!strncmp(loc_idex.opcode, "001000", 6)) {
-			//printf("add instruction : loc_idex.rt_val : 0x%08x \n", loc_idex.rt_val);
-			printf("addi in ex\n");
 			exmem.alu_res = loc_idex.rs_val + loc_idex.imm;
-			//printf("add result exmem.alu_res : 0x%08x\n", exmem.alu_res);
-
 			//addi
 		}
 		else if (!strncmp(loc_idex.opcode, "001100", 6)) {
-			printf("andi in ex\n");
 			exmem.alu_res = loc_idex.rs_val & (0x0000FFFF & loc_idex.imm);
 			//andi
 		}
 		else if (!strncmp(loc_idex.opcode, "001111", 6)) {
-			printf("lui in ex\n");
 			exmem.alu_res = (loc_idex.imm << 16);
 			//lui
 		}
 		else if (!strncmp(loc_idex.opcode, "100011", 6)) {
-			printf("lw in ex\n");
 			exmem.alu_res = ((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4;//접근하고자 하는 memory 주소/4
 			//lw
 			//lw $2, 1073741824($10)
 		}
 		else if (!strncmp(loc_idex.opcode, "001101", 6)) {
-			printf("ori in ex\n");
 			exmem.alu_res = loc_idex.rs_val | (0x0000FFFF & loc_idex.imm);
 			//ori
 		}
 		else if (!strncmp(loc_idex.opcode, "101011", 6)) {
 			exmem.alu_res= ((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4;//rt에 저장되어 있던 값을 저장할 memory의 주소값 계산
-			printf("sw in ex\nsw gets address to store the value --> 0x%08x\n", exmem.alu_res);
-
+			//printf("sw in ex\nsw gets address to store the value --> 0x%08x\n", exmem.alu_res);
 			//sw
 		}
 		else if (!strncmp(loc_idex.opcode, "001010", 6)) {
-			printf("slti in ex\n");
 			if (loc_idex.rs_val < loc_idex.imm)
 				exmem.alu_res = 1;
 			else
 				exmem.alu_res = 0;
 			//slti
-		}
-		else {
-			printf("branch? in ex\n");
 		}
 	}
 
@@ -1419,7 +1144,6 @@ void EX(char* middle, int* Reg) {
 
 int MEM(char* middle, int* DMem) {
 
-	//printf("im in mem stage\n");
 
 	/*
 	MEM에서 할 일
@@ -1429,53 +1153,16 @@ int MEM(char* middle, int* DMem) {
 		- 나머지(regWrite==1)의 경우, alu_res 넘겨주기 
 	3. reg_dst_id MEM/WB로 넘겨주기 
 	
+	memory 쓰는 것만 .. load store .. 끝
 	*/
 	
-
-	/*
-	* memory 쓰는 것만 .. load store .. 끝
-	* 
-	typedef struct EX_MEM {
-	char opcode[7];//opcode[6]은 null로 초기화
-	char funct[7];//funct[6]은 null로 초기화
-	char shamt[6];
-	int alu_res;
-	int dst_reg_id;
-	int rs_val;
-	int rt_val;
-	int rd_val;
-	int rs;
-	int rt;//ex stage에서 rt와 rd중 어떤게 real dst인지 RegDst로 판별
-	int rd;
-	int imm;
-	CO cont_op;
-	}EXMEM;
-
-	typedef struct MEM_WB {
-		char opcode[7];//opcode[6]은 null로 초기화ㅇ
-		char funct[7];//funct[6]은 null로 초기화ㅇ
-		char shamt[6];ㅇ
-		int data;//reg에 저장될 계산 결과든, mem에서 load해온 값이든 WB stage에서 muxing
-		-> 각 if 문 안에서 개별적으로 data에 저장
-		int dst_reg_id;ㅇ
-		int rs_val;ㅇ
-		int rt_val;ㅇ
-		int rd_val;ㅇ
-		int rs;ㅇ
-		int rt;ㅇ
-		int rd;ㅇ
-		int imm;ㅇ
-		CO cont_op;ㅇ
-	}MEMWB;
-	*/
 
 
 	//load, store의 경우, alu_res에 mem 주소가 들어있음 
 	if (!strncmp(loc_exmem.opcode, "100011", 6)) {
-		printf("lw in mem stage\n");
 		memwb.data = DMem[loc_exmem.alu_res];
-		printf("lw is loading value 0x%08x from memory address 0x%08x\n", DMem[loc_exmem.alu_res], loc_exmem.alu_res);
-		printf("loaded value 0x%08x from mem\n", memwb.data);
+		//printf("lw is loading value 0x%08x from memory address 0x%08x\n", DMem[loc_exmem.alu_res], loc_exmem.alu_res);
+		//printf("loaded value 0x%08x from mem\n", memwb.data);
 		/*
 		WB stage에서 Reg[memwb.reg_dst_id]=memwb.data; 해주면 됨 
 		mem에서도 reg에 저장하면 안됨,data로 옮겨놨다가, WB에서 register에 저장해야함
@@ -1487,18 +1174,16 @@ int MEM(char* middle, int* DMem) {
 		*/
 	}
 	else if (!strncmp(loc_exmem.opcode, "101011", 6)) {
-		printf("sw in mem stage\n");
+		//printf("sw in mem stage\n");
 		DMem[loc_exmem.alu_res] = loc_exmem.rt_val;
-		printf("sw is storing value 0x%08x in memory address 0x%08x\n", DMem[loc_exmem.alu_res],loc_exmem.alu_res);
-		//DMem[(Reg[Regi(rs)] + bintoDeci(Imm, 1) - 0x10000000) / 4] = Reg[Regi(rt)];
+		//printf("sw is storing value 0x%08x in memory address 0x%08x\n", DMem[loc_exmem.alu_res],loc_exmem.alu_res);
 		//sw
 	}
 	else if (!strncmp(loc_exmem.opcode, "000000", 6)&& !strncmp(loc_exmem.funct, "000000", 6)&& !strncmp(loc_exmem.shamt, "00000", 5)) {
-		printf("nothing to do in mem stage\n");
+		//printf("nothing to do in mem stage\n");
 	}
 	else {
 		//그 이외 : ex stage에서 계산한 결과를 WB stage에서 reg에 저장하는 경우 
-		printf("store alu result in data maybe r-type inst\n");
 		memwb.data = loc_exmem.alu_res;
 	}
 
@@ -1545,74 +1230,53 @@ int WB(char* middle, int* Reg) {
 	if (!strncmp(loc_memwb.opcode, "000000", 6))
 	{//R-type ->  op rs rt rd shamt funct
 		if (!strncmp(loc_memwb.funct, "100000", 6)) {
-			printf("add in wb\n");
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//add
 		}
 		else if (!strncmp(loc_memwb.funct, "100100", 6)) {
-			printf("and in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//and
 		}
 		else if (!strncmp(loc_memwb.funct, "100101", 6)) {
-			printf("or in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//or
 		}
 		else if (!strncmp(loc_memwb.funct, "101010", 6)) {
-			printf("slt in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//slt
 		}
 		else if (!strncmp(loc_memwb.funct, "100010", 6)) {
-			printf("sub in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//sub
 		}
 		else if(!strncmp(loc_memwb.funct, "000000", 6)){
-			printf("maybe nop or sll in wb stage\n");
+			//printf("maybe nop or sll in wb stage\n");
 		}
 	}
 	else {
 		//For I-type
 		//For J and JAL
 		if (!strncmp(loc_memwb.opcode, "001000", 6)) {
-			printf("addi in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//addi
 		}
 		else if (!strncmp(loc_memwb.opcode, "001100", 6)) {
-			printf("andi in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//andi
 		}
 		else if (!strncmp(loc_memwb.opcode, "001111", 6)) {
-			printf("lui in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//lui
 		}
 		else if (!strncmp(loc_memwb.opcode, "100011", 6)) {
-			printf("lw in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//lw
 		}
 		else if (!strncmp(loc_memwb.opcode, "001101", 6)) {
-			printf("ori in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//ori
 		}
 		else if (!strncmp(loc_memwb.opcode, "001010", 6)) {
-			printf("slti in wb\n");
-
 			Reg[loc_memwb.dst_reg_id] = loc_memwb.data;
 			//slti
 		}
@@ -1777,15 +1441,12 @@ int main(int argc, char* argv[]) {
 
 		if (if_f = 1 && id_f == 1 && ex_f == 0 && mem_f == 0 && wb_f == 0) {
 			printReg = Reg[32];
-
 			IF(middle, Reg);
 			ID(Reg, DMem);
 
-
 			ex_f = 1; 
-			if (PCWrite == 1) {
+			if (PCWrite == 1) 
 				Reg[32] += 4;
-			}
 
 			if(IF_IDWrite==1)
 				loc_ifid = ifid;
@@ -1794,15 +1455,13 @@ int main(int argc, char* argv[]) {
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 0 && wb_f == 0) {
 			printReg = Reg[32];
-
 			IF(middle, Reg);
 			ID(Reg, DMem);
 			EX(middle, Reg);
 
 			mem_f = 1; 
-			if (PCWrite == 1) {
+			if (PCWrite == 1) 
 				Reg[32] += 4;
-			}
 
 			if (IF_IDWrite == 1)
 				loc_ifid = ifid;
@@ -1814,16 +1473,14 @@ int main(int argc, char* argv[]) {
 
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 0) {
 			printReg = Reg[32];
-
 			IF(middle, Reg);
 			ID(Reg, DMem);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 
 			wb_f = 1;
-			if (PCWrite == 1) {
+			if (PCWrite == 1) 
 				Reg[32] += 4;
-			}
 
 			if (IF_IDWrite == 1)
 				loc_ifid = ifid;
@@ -1834,18 +1491,14 @@ int main(int argc, char* argv[]) {
 		}
 		if (if_f = 1 && id_f == 1 && ex_f == 1 && mem_f == 1 && wb_f == 1) {
 			printReg = Reg[32];
-
 			IF(middle, Reg);
 			ID(Reg, DMem);
 			EX(middle, Reg);
 			MEM(middle, DMem);
 			WB(middle, Reg);
 
-			printf("pcwrite value %d\n", PCWrite);
-			if (PCWrite == 1) {
-				printf("pc= pc+4 0x%08x\n",Reg[32]);
+			if (PCWrite == 1) 
 				Reg[32] += 4;
-			}
 			if (IF_IDWrite == 1) 
 				loc_ifid = ifid;
 
@@ -1870,7 +1523,7 @@ int main(int argc, char* argv[]) {
 		for (int regg = 0; regg < 33; regg++) {
 			if (regg == 32) {
 				printf("PC: 0x%08x\n", Reg[regg]);
-				printf("printReg: 0x%08x\n", printReg);
+				//printf("printReg: 0x%08x\n", printReg);
 			}
 			else
 				printf("$%d: 0x%08x\n", regg, Reg[regg]);
