@@ -952,49 +952,51 @@ int ID(int* Reg, int* DMem) {
 
 			<lw nop branch>
 			exmem.reg-dst == ifid.rs or rt ,exmem.cont-op.memread == 1
-			need 1 bubble 
+			그냥 다 forwarding하기 
 
 			<lw branch>
 			memread 활용
 			idex.memread==1,  idex.rt==ifid.rs or rt
-			need 2 bubble
+			그냥 다 forwarding하기 
 
 			--> 두 경우 모두 이 if에 걸리게 만들자  
+			//checksum을 어디서 하는지 모르겠는데 쨋든 이 forwarding, bypassing으로는 rs값이 안바뀜 
+			//어쨋든 둘다 taken이니까, 
 			*/
-			if (loc_exmem.cont_op.MemRead) {
-				checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];
+			if (loc_exmem.cont_op.MemRead==1) {
+				//<lw nop branch>
 				if(loc_exmem.dst_reg_id == loc_ifid.rs)
 					rs=DMem[loc_exmem.alu_res];
 				else if(loc_exmem.dst_reg_id == loc_ifid.rt)
 					rt= DMem[loc_exmem.alu_res];
 			}
-			else if (loc_idex.cont_op.MemRead) {
-				checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];
+			else if (loc_idex.cont_op.MemRead==1) {
+				//<lw branch>
+				int address = ((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4;
 				if (loc_idex.rt == loc_ifid.rs)
-					rs = DMem[((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4];
+					rs = DMem[address];
 				else if (loc_idex.rt == loc_ifid.rt)
-					rt = DMem[((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4];
+					rt = DMem[address];
 			}
 
 			/*
 			<lw nop nop branch>
 			data hazard인 경우 beq내에서 bypass why? ID 내에서 직접 bypassing한 값을 재료로 계산을 해야하기 때문
 			ID stage 마지막의 branch if문에서 branch_bypass=1이면, bypass 확인 안하기
+			--> 얘는 대놓고 bypass -> bypass한 값으로 checksum
 			*/
 			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
 				rs = loc_memwb.data;
 				idex.rs_val = rs;
 				printf("this is beq's bypass rs\nbypassed rs value of branch inst is 0x%08x\n", rs);
 				checksum = (checksum << 1 | checksum >> 31) ^ rs;
-				//bypass한 값을 ex로 넘겨줄지 안넘겨줄지 모르니 일단 여기서 rs값으로 checksum한다 
-				//그리고 안넘겨 주고 nop을 넘겨주게 된다면, 아래 if문 안에서 알아서 nop으로 다시 세팅한다. 
 				branch_bypass = 1;
 			}
 			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)){
 				rt = loc_memwb.data;
 				printf("this is beq's bypass rt\nbypassed rt value of branch inst is 0x%08x\n", rt);
 				idex.rt_val = rt;
-				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
+				checksum = (checksum << 1 | checksum >> 31) ^ rs;
 				branch_bypass = 1;
 			}
 
@@ -1034,46 +1036,26 @@ int ID(int* Reg, int* DMem) {
 			idex.cont_op.ForwardA = 0;
 			idex.cont_op.ForwardB = 0;
 			IF_IDWrite = 1;
-
-			/*
-			<lw nop branch>
-			exmem.reg-dst == ifid.rs or rt ,exmem.cont-op.memread == 1
-			need 1 bubble
-			*/
-
-			if ((loc_exmem.cont_op.MemRead && ((loc_exmem.dst_reg_id == loc_ifid.rs) || (loc_exmem.dst_reg_id == loc_ifid.rt))) ||
-				(loc_idex.cont_op.MemRead && ((loc_idex.rt == loc_ifid.rs) || (loc_idex.rt == loc_ifid.rt)))) {
-				checksum = (checksum << 1 | checksum >> 31) ^ Reg[loc_ifid.rs];//ID stage 바로 종료, checksum 이 안에서 계산 해줘야함 
-				strncpy(idex.opcode, "000000\0", 7);
-				strncpy(idex.funct, "000000\0", 7);
-				strncpy(idex.shamt, "00000\0", 6);
-				//printf("idex.opcode : %s\nidex.funct : %s\nidex.funct : %s\n", idex.opcode, idex.funct, idex.shamt);
-				idex.imm = 0;
-				idex.rd = 0;
-				idex.rt = 0;
-				idex.rs = 0;
-				idex.rd_val = 0;
-				idex.rs_val = 0;
-				idex.rt_val = 0;
-				//nop's control option
-				idex.cont_op.RegDst = 0;
-				idex.cont_op.MemtoReg = 0;
-				idex.cont_op.RegWrite = 0;
-				idex.cont_op.MemRead = 0;
-				idex.cont_op.MemWrite = 0;
-				idex.cont_op.Branch = 0;
-				idex.cont_op.IF_Flush = 0;
-				idex.cont_op.ForwardA = 0;
-				idex.cont_op.ForwardB = 0;
-				PCWrite = 0;
-				IF_IDWrite = 0;
-				printf("lw hzd with branch occurred in ID and mem stage -> 1 or 2 bubble\n");
-				return 10; //10 means load hzd
-			}
-
+		
 			int rs = 0, rt = 0;
 			rs = Reg[loc_ifid.rs];
 			rt = Reg[loc_ifid.rt];
+
+			if (loc_exmem.cont_op.MemRead == 1) {
+				//<lw nop branch>
+				if (loc_exmem.dst_reg_id == loc_ifid.rs)
+					rs = DMem[loc_exmem.alu_res];
+				else if (loc_exmem.dst_reg_id == loc_ifid.rt)
+					rt = DMem[loc_exmem.alu_res];
+			}
+			else if (loc_idex.cont_op.MemRead == 1) {
+				//<lw branch>
+				int address = ((loc_idex.rs_val + loc_idex.imm) - 0x10000000) / 4;
+				if (loc_idex.rt == loc_ifid.rs)
+					rs = DMem[address];
+				else if (loc_idex.rt == loc_ifid.rt)
+					rt = DMem[address];
+			}
 
 			/*
 			<lw nop nop branch>
@@ -1082,14 +1064,18 @@ int ID(int* Reg, int* DMem) {
 			*/
 			if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rs)) {
 				rs = loc_memwb.data;
+				idex.rs_val = rs;
 				printf("this is bne's bypass rs\nbypassed rs value of branch inst is 0x%08x\n", rs);
-				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
+				checksum = (checksum << 1 | checksum >> 31) ^ rs;
+				//bypass한 값을 ex로 넘겨줄지 안넘겨줄지 모르니 일단 여기서 rs값으로 checksum한다 
+				//그리고 안넘겨 주고 nop을 넘겨주게 된다면, 아래 if문 안에서 알아서 nop으로 다시 세팅한다. 
 				branch_bypass = 1;
 			}
 			else if (loc_memwb.cont_op.MemRead == 1 && (loc_memwb.dst_reg_id == loc_ifid.rt)) {
 				rt = loc_memwb.data;
 				printf("this is bne's bypass rt\nbypassed rt value of branch inst is 0x%08x\n", rt);
-				//checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
+				idex.rt_val = rt;
+				checksum = (checksum << 1 | checksum >> 31) ^ rs;//bypass 여기서 일어나니까, checksum 이 안에서 계산 해줘야함 
 				branch_bypass = 1;
 			}
 
